@@ -1,0 +1,2449 @@
+AltaworxRevAWSCustomerSync --> Lambda Name
+
+RevCustomerSync_TEST --> Queue Name triggering this lambda 
+
+Runs daily at 1345 UTC --> Scheduled Time 
+
+Sync Frequency:
+
+Next 10 trigger date(s)
+
+UTC
+Fri, 19 Sep 2025 13:45:00 UTC
+Sat, 20 Sep 2025 13:45:00 UTC
+Sun, 21 Sep 2025 13:45:00 UTC
+Mon, 22 Sep 2025 13:45:00 UTC
+Tue, 23 Sep 2025 13:45:00 UTC
+Wed, 24 Sep 2025 13:45:00 UTC
+Thu, 25 Sep 2025 13:45:00 UTC
+Fri, 26 Sep 2025 13:45:00 UTC
+Sat, 27 Sep 2025 13:45:00 UTC
+Sun, 28 Sep 2025 13:45:00 UTC
+
+Environmental Variables:
+
+Amop20SyncUpdateAPIURL
+https://qa-api.amop.services/migration_management_qa
+BaseMultiTenantConnectionString
+data source=multitenantportal.cvax8ohayigx.us-east-1.rds.amazonaws.com;initial catalog=basemultitenant_dev;persist security info=True;user id=BaseMultiTenant_TestUser;password=9ZadmvQj3QU%pyQg;multipleactiveresultsets=True;Encrypt=False;
+ConnectionString
+data source=altaworx-test.cd98i7zb3ml3.us-east-1.rds.amazonaws.com;initial catalog=AltaWorxCentral_DEV;persist security info=True;user id=altaworx;password=2lvAQnQ0vBwNZNjpONhy;multipleactiveresultsets=True;connect timeout=90;application name=EntityFramework" providerName = "System.Data.SqlClient;Encrypt=False;
+EnvName
+Development
+RevCustomerSyncQueueUrl
+https://sqs.us-east-1.amazonaws.com/130265568833/RevCustomerSync_DEV
+RevGetAgentUrl
+https://api.revioapi.com/v1/Agents
+RevGetBillProfilesUrl
+https://api.revioapi.com/v1/BillProfiles
+RevGetCustomersUrl
+https://api.revioapi.com/v1/Customers
+RevGetInventoryItemsUrl
+https://api.revioapi.com/v1/InventoryItem
+RevGetInventoryTypesUrl
+https://api.revioapi.com/v1/InventoryTypes
+RevGetPackageProductsUrl
+https://api.revioapi.com/v1/PackageProducts
+RevGetPackagesUrl
+https://api.revioapi.com/v1/Packages
+RevGetProductTypesUrl
+https://api.revioapi.com/v1/ProductTypes
+RevGetProductsUrl
+https://api.revioapi.com/v1/Products
+RevGetProvidersUrl
+https://api.revioapi.com/v1/Providers
+RevGetServiceProductsUrl
+https://api.revioapi.com/v1/ServiceProduct
+RevGetServiceTypesUrl
+https://api.revioapi.com/v1/ServiceTypes
+RevGetServicesUrl
+https://api.revioapi.com/v1/Services
+RevGetUsagePlanGroupsUrl
+https://api.revioapi.com/v1/UsagePlanGroups
+RevPageSize
+1000
+VerboseLogging
+false
+
+Below are the stored procedures included in this lambda flow :
+
+usp_Update_RevCustomer
+
+CREATE PROCEDURE [dbo].[usp_Update_RevCustomer]  
+    @IntegrationAuthenticationId INT  
+AS  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevCustomer';  
+  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [dbo].[RevCustomerStaging] WHERE [IntegrationAuthenticationId] = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    MERGE [dbo].[RevCustomer] AS [TARGET]  
+    USING (  
+        SELECT [RevCustomerId],  
+            [CustomerName],  
+            [ParentCustomerId],  
+            [IntegrationAuthenticationId],  
+            [Status],  
+            [ActivatedDate],  
+            [CloseDate],  
+            [TaxExemptEnabled],  
+            [TaxExemptTypes],  
+            [BillProfileId],  
+            [AgentId]  
+        FROM [dbo].[RevCustomerStaging]  
+    ) AS [SOURCE]  
+    ON [TARGET].[RevCustomerId] = [SOURCE].[RevCustomerId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET [TARGET].[CustomerName] = [SOURCE].[CustomerName],  
+            [TARGET].[RevParentCustomerId] = [SOURCE].[ParentCustomerId],  
+            [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId],  
+            [TARGET].[Status] = [SOURCE].[Status],  
+            [TARGET].[ActivatedDate] = [SOURCE].[ActivatedDate],  
+            [TARGET].[CloseDate] = [SOURCE].[CloseDate],  
+            [TARGET].[ModifiedBy] = @processedBy,  
+            [TARGET].[ModifiedDate] = GETUTCDATE(),  
+            [TARGET].[TaxExemptEnabled] = [SOURCE].[TaxExemptEnabled],  
+            [TARGET].[TaxExemptTypes] = [SOURCE].[TaxExemptTypes],  
+            [TARGET].[IsActive] = CASE WHEN [SOURCE].[Status] = 'CLOSED' THEN 0 ELSE 1 END,  
+            [TARGET].[IsDeleted] = CASE WHEN [SOURCE].[Status] = 'CLOSED' THEN 1 ELSE 0 END,  
+            [TARGET].[BillProfileId] = [SOURCE].[BillProfileId],  
+            [TARGET].[AgentId] = [SOURCE].[AgentId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT (  
+            [RevCustomerId],  
+            [CustomerName],  
+            [RevParentCustomerId],  
+            [CreatedBy],[CreatedDate],  
+            [IsDeleted],  
+            [IntegrationAuthenticationId],  
+            [Status],  
+            [ActivatedDate],  
+            [CloseDate],  
+            [TaxExemptEnabled],  
+            [TaxExemptTypes],  
+            [BillProfileId],  
+            [AgentId]  
+        )  
+        VALUES (  
+            [SOURCE].[RevCustomerId],  
+            [SOURCE].[CustomerName],  
+            [SOURCE].[ParentCustomerId],  
+            @processedBy,  
+            GETUTCDATE(),  
+            0,  
+            [SOURCE].[IntegrationAuthenticationId],  
+            [SOURCE].[Status],  
+            [SOURCE].[ActivatedDate],  
+            [SOURCE].[CloseDate],  
+            [SOURCE].[TaxExemptEnabled],  
+            [SOURCE].[TaxExemptTypes],  
+            [SOURCE].[BillProfileId],  
+            [SOURCE].[AgentId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE();  
+  
+    UPDATE [RevCustomer]  
+    SET [ParentCustomerId] = [ParentRevCustomer].[id]  
+    FROM [RevCustomer]  
+    LEFT JOIN [RevCustomer] [ParentRevCustomer] ON [RevCustomer].[RevParentCustomerId] = [ParentRevCustomer].[RevCustomerId] AND [RevCustomer].[IntegrationAuthenticationId] = [ParentRevCustomer].[IntegrationAuthenticationId];  
+  
+    UPDATE [RevCustomer]  
+    SET [ChildCount] = ((SELECT COUNT(1) FROM [RevCustomer] WHERE [RevCustomer].[RevCustomerId] = [RevParentCustomerId] AND [RevCustomer].[IntegrationAuthenticationId] = [IntegrationAuthenticationId] AND [Status] <> 'CLOSED'))  
+    FROM [RevCustomer];  
+  
+    --=================================================  
+    -- Case Site record does not exist  
+    -- Unique constraint [UC_Site] on   
+    -- [TenantId]  
+    -- [Name]  
+    --  
+    -- NOTE: Because we have many RevCustomer records that have the same customer names with different RevCustomerIDs,  
+    --       we are appending RevCustomerIDs to CustomerName.  
+    --  
+    -- E.g. Bluefox.io has 3 entries with 3 different RevCustomerIds  
+    --  
+    -- RevCustomerId CustomerName  
+    -- 300007255 Bluefox.io  
+    -- 300006635 Bluefox.io  
+    -- 300006784 Bluefox.io  
+    --  
+    -- [dbo].[Site] will have:  
+    --   
+    -- RevCustomerId Name   
+    -- 300007255 Bluefox.io - 300007255  
+    -- 300006635 Bluefox.io - 300006635  
+    -- 300006784 Bluefox.io - 300006784  
+  
+    --=================================================  
+    INSERT INTO [dbo].[Site] (  
+            [TenantId],  
+            [Name],  
+            [RevCustomerId],  
+            [CreatedDate],  
+            [CreatedBy],  
+            [IsDeleted],  
+            [IsActive]  
+        )  
+    SELECT DISTINCT  
+        [IntegrationAuthentication].[TenantId],  
+        [RevCustomer].[CustomerName] + ' (' + [RevCustomer].[RevCustomerId] + ')' AS [Name],  
+        [RevCustomer].[Id] AS [RevCustomerId],  
+        GETUTCDATE() AS [CreatedDate],  
+        'RevSync' AS [CreatedBy],  
+        0,  
+        1  
+    FROM [dbo].[RevCustomer]  
+    INNER JOIN [dbo].[Integration_Authentication] [IntegrationAuthentication] ON [RevCustomer].[IntegrationAuthenticationId] = [IntegrationAuthentication].[Id]  
+    WHERE NOT EXISTS (  
+            SELECT 1   
+            FROM [dbo].[Site]   
+            WHERE   
+                Site.[RevCustomerId] = [RevCustomer].[Id]  
+                AND  
+                Site.[TenantId] = [IntegrationAuthentication].[TenantId]  
+        );  
+  
+    --========================================================================  
+    -- Update default customer billing period end day and end hour  
+    --========================================================================  
+    UPDATE [Site]  
+    SET  
+        [CustomerBillPeriodEndDay] = IIF(([Site].[CustomerBillPeriodEndDay] IS NULL OR ([Site].[CustomerBillPeriodEndDay] IS NOT NULL AND [Site].[CustomerBillPeriodEndDay] != [RevCustomerStaging].[CustomerBillPeriodEndDay])) AND [RevCustomerStaging].[Cust
+omerBillPeriodEndDay] <= 28 AND [RevCustomerStaging].[CustomerBillPeriodEndDay] >= 1, [RevCustomerStaging].[CustomerBillPeriodEndDay], [Site].[CustomerBillPeriodEndDay]),  
+        [CustomerBillPeriodEndHour] = IIF(([Site].[CustomerBillPeriodEndHour] IS NULL OR ([Site].[CustomerBillPeriodEndHour] IS NOT NULL AND [Site].[CustomerBillPeriodEndHour] != [RevCustomerStaging].[CustomerBillPeriodEndHour])) AND [RevCustomerStaging].
+[CustomerBillPeriodEndHour] <= 23 AND [RevCustomerStaging].[CustomerBillPeriodEndHour] >= 0, [RevCustomerStaging].[CustomerBillPeriodEndHour], [Site].[CustomerBillPeriodEndHour])  
+    FROM  
+        [dbo].[Site]  
+  INNER JOIN [dbo].[RevCustomer] ON [RevCustomer].[id] = [Site].[RevCustomerId] AND [RevCustomer].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+        INNER JOIN [dbo].[RevCustomerStaging] ON [RevCustomerStaging].[RevCustomerId] = [RevCustomer].[RevCustomerId] AND [RevCustomerStaging].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+    WHERE   
+       [Site].[CustomerBillPeriodEndDay] IS NULL   
+  OR ([Site].[CustomerBillPeriodEndDay] IS NOT NULL AND [Site].[CustomerBillPeriodEndDay] != [RevCustomerStaging].[CustomerBillPeriodEndDay])  
+  OR [Site].[CustomerBillPeriodEndHour] IS NULL  
+  OR ([Site].[CustomerBillPeriodEndHour] IS NOT NULL AND [Site].[CustomerBillPeriodEndHour] != [RevCustomerStaging].[CustomerBillPeriodEndHour])  
+  
+    --========================================================================  
+    -- Update Flag Delete Of Site When RevCustomer Is Closed  
+    --========================================================================  
+    UPDATE [Site]  
+    SET  
+        [IsActive] = [RevCustomer].[IsActive],  
+        [IsDeleted] = [RevCustomer].[IsDeleted],  
+        [ModifiedBy] = 'RevSync',  
+        /* Keeping it consitent with Jasper Sync*/  
+        [ModifiedDate] = GETDATE()  
+    FROM  
+        [dbo].[Site]  
+        INNER JOIN [dbo].[RevCustomer] ON [RevCustomer].[id] = [Site].[RevCustomerId] AND [RevCustomer].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+        INNER JOIN [dbo].[Integration_Authentication] ON [RevCustomer].[IntegrationAuthenticationId] = [Integration_Authentication].[id] AND [Site].[TenantId] = [Integration_Authentication].[TenantId];  
+    --========================================================================  
+    -- Update Device_Tenant and Mobility_DeviceTenant to Default site(Unassigned) When RevCustomer Is Closed  
+    --========================================================================  
+ UPDATE [Device_Tenant]  
+ SET  
+  [SiteId] = CASE WHEN [RevCustomer].[Status] = 'CLOSED' THEN [Site].[id] ELSE [Device_Tenant].[SiteId] END,  
+  [ModifiedBy] = 'RevSync',  
+        /* Keeping it consitent with Jasper Sync*/  
+        [ModifiedDate] = GETDATE()  
+ FROM   
+  [dbo].[Device_Tenant]  
+  INNER JOIN [dbo].[RevCustomer] ON [RevCustomer].[RevCustomerId] = [Device_Tenant].AccountNumber AND [RevCustomer].IntegrationAuthenticationId = @IntegrationAuthenticationId  
+  INNER JOIN [dbo].[Site] ON [IsSystemDefault] = 1 AND [Device_Tenant].[TenantId] = [Site].[TenantId] AND [Site].IsActive = 1 AND [Site].[IsDeleted] = 0  
+ WHERE [Device_Tenant].[IsDeleted] = 0 AND [Device_Tenant].[IsActive] = 1  
+   AND [Device_Tenant].AccountNumberIntegrationAuthenticationId = @IntegrationAuthenticationId  
+ UPDATE [MobilityDevice_Tenant]  
+ SET  
+  [SiteId] = CASE WHEN [RevCustomer].[Status] = 'CLOSED' THEN [Site].[id] ELSE [MobilityDevice_Tenant].[SiteId] END,  
+  [ModifiedBy] = 'RevSync',  
+        /* Keeping it consitent with Jasper Sync*/  
+        [ModifiedDate] = GETDATE()  
+ FROM   
+  [dbo].[MobilityDevice_Tenant]  
+  INNER JOIN [dbo].[RevCustomer] ON [RevCustomer].[RevCustomerId] = [MobilityDevice_Tenant].AccountNumber AND [RevCustomer].IntegrationAuthenticationId = @IntegrationAuthenticationId  
+  INNER JOIN [dbo].[Site] ON [IsSystemDefault] = 1 AND [MobilityDevice_Tenant].[TenantId] = [Site].[TenantId] AND [Site].IsActive = 1 AND [Site].[IsDeleted] = 0  
+    WHERE [MobilityDevice_Tenant].[IsDeleted] = 0 AND [MobilityDevice_Tenant].[IsActive] = 1  
+AND [MobilityDevice_Tenant].AccountNumberIntegrationAuthenticationId = @IntegrationAuthenticationId  
+    --========================================================================  
+    -- Case Site record exists and Name is different  
+    --========================================================================  
+    UPDATE [Site]  
+    SET  
+        [Name] = [RevCustomer].[CustomerName] + ' (' + [RevCustomer].[RevCustomerId] + ')',  
+        [ModifiedBy] = 'RevSync',  
+        /* Keeping it consitent with Jasper Sync*/   
+        [ModifiedDate] = GETDATE()   
+    FROM  
+        [dbo].[Site]  
+        INNER JOIN [dbo].[RevCustomer] ON [RevCustomer].[id] = [Site].[RevCustomerId]  
+    WHERE  
+        /* null is not allowed both for Site.Name and [RevCustomerStaging].RevCustomerId so this check is sufficient. */  
+        [Site].[Name] != [RevCustomer].[CustomerName] + ' (' + [RevCustomer].[RevCustomerId] + ')';  
+  
+    --========================================================================  
+    -- Case new Child accounts created to be automatically assigned to the Customer Group  
+    --========================================================================  
+    INSERT INTO [dbo].[SiteGroup_Site] ([SiteGroupId], [SiteId])  
+    SELECT [SiteGroupSite].[SiteGroupId], [Site].[id]  
+    FROM  
+        [dbo].[Site]  
+        INNER JOIN [dbo].[RevCustomer] ON [RevCustomer].[id] = [Site].[RevCustomerId] AND [RevCustomer].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+        LEFT JOIN [dbo].[Site] [ParentSite] ON [ParentSite].[RevCustomerId] = [RevCustomer].[ParentCustomerId]  
+        INNER JOIN [dbo].[SiteGroup_Site] [SiteGroupSite] ON [SiteGroupSite].[SiteId] = [ParentSite].[id]  
+        INNER JOIN [dbo].[SiteGroup] ON [SiteGroup].[id] = [SiteGroupSite].[SiteGroupId]  
+    WHERE [SiteGroup].[IncludeChildAccounts] = 1 AND (([Site].[ParentSiteId] IS NULL AND [ParentSite].[Id] IS NOT NULL) OR ([Site].[ParentSiteId] IS NOT NULL AND [ParentSite].[Id] IS NOT NULL AND [Site].[ParentSiteId] <> [ParentSite].[Id]));  
+  
+    --========================================================================  
+    -- Case Site record does not have Parent Site but RevCustomer does  
+    --========================================================================  
+    UPDATE [Site]  
+    SET  
+        [ParentSiteId] = [ParentSite].[id],  
+        [ModifiedBy] = 'RevSync',  
+        [ModifiedDate] = GETDATE()  
+    FROM  
+        [dbo].[Site]  
+        INNER JOIN [dbo].[RevCustomer] ON [RevCustomer].[id] = [Site].[RevCustomerId] AND [RevCustomer].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+        LEFT JOIN [dbo].[Site] [ParentSite] ON [ParentSite].[RevCustomerId] = [RevCustomer].[ParentCustomerId]  
+    WHERE ([Site].[ParentSiteId] IS NULL AND [ParentSite].[Id] IS NOT NULL) OR ([Site].[ParentSiteId] IS NOT NULL AND [ParentSite].[Id] IS NULL) OR ([Site].[ParentSiteId] IS NOT NULL AND [ParentSite].[Id] IS NOT NULL AND [Site].[ParentSiteId] <> [ParentSi
+te].[Id]);
+
+
+DELETE FROM {tableName} WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId
+
+usp_Update_RevBillProfile
+
+CREATE PROCEDURE [dbo].[usp_Update_RevBillProfile]  
+    @IntegrationAuthenticationId INT   
+AS  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevBillProfileStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevBillProfile';  
+    MERGE [dbo].[RevBillProfile] AS [TARGET]  
+    USING  
+    (  
+        SELECT  
+            [BillProfileId]  
+            ,[Description]  
+            ,[IsActive]  
+            ,[IntegrationAuthenticationId]  
+        FROM  
+        (  
+            SELECT   
+                [RevBillProfileStaging].[BillProfileId]  
+                ,[RevBillProfileStaging].[Description]  
+                ,[RevBillProfileStaging].[IsActive]  
+                ,[RevBillProfileStaging].[IntegrationAuthenticationId]  
+                ,ROW_NUMBER() OVER(PARTITION BY [IntegrationAuthenticationId], [BillProfileId] ORDER BY [RevBillProfileStaging].[RevBillProfileStagingId] DESC) AS [RecordNumber]  
+            FROM [RevBillProfileStaging]  
+        ) [RevBillProfileStg]  
+        WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[BillProfileId] = [SOURCE].[BillProfileId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT(  
+            [BillProfileId]  
+            ,[Description]  
+            ,[IntegrationAuthenticationId]  
+            ,[CreatedBy]  
+            ,[CreatedDate]  
+            ,[IsDeleted]  
+            ,[IsActive]  
+        )  
+        VALUES(  
+            [SOURCE].[BillProfileId]  
+            ,[SOURCE].[Description]  
+            ,[SOURCE].[IntegrationAuthenticationId]  
+            ,@processedBy  
+            ,GETUTCDATE()  
+            ,0  
+            ,[SOURCE].[IsActive]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET [TARGET].[Description] = [SOURCE].[Description]  
+            ,[TARGET].[ModifiedBy] = @processedBy  
+            ,[TARGET].[ModifiedDate] = GETUTCDATE()  
+            ,[TARGET].[IsActive] = [SOURCE].[IsActive]  
+            ,[TARGET].[IsDeleted] = ~[SOURCE].[IsActive];
+
+usp_Update_RevProvider
+
+CREATE PROCEDURE [dbo].[usp_Update_RevProvider]  
+    @IntegrationAuthenticationId INT   
+AS  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevProviderStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevProvider';  
+    MERGE [dbo].[RevProvider] AS [TARGET]  
+    USING  
+    (  
+        SELECT  
+            [ProviderId]  
+            ,[Description]  
+            ,[ProviderCode]  
+            ,[IsActive]  
+            ,[DateCreated]  
+            ,[HasCnamOrderType]  
+            ,[HasConversionOrderType]  
+            ,[HasDenyOrderType]  
+            ,[HasDisconnectOrderType]  
+            ,[HasE911OrderType]  
+            ,[HasLongDistanceBlockOrderType]  
+            ,[HasPortOrderType]  
+            ,[HasRestoreOrderType]  
+            ,[HasTransferOrderType]  
+            ,[IntegrationAuthenticationId]  
+            ,[RevBillProfileId]  
+        FROM  
+        (  
+            SELECT   
+                [RevProviderStaging].[ProviderId]  
+                ,[RevProviderStaging].[Description]  
+                ,[RevProviderStaging].[ProviderCode]  
+                ,[RevProviderStaging].[IsActive]  
+                ,[RevProviderStaging].[DateCreated]  
+                ,[RevProviderStaging].[HasCnamOrderType]  
+                ,[RevProviderStaging].[HasConversionOrderType]  
+                ,[RevProviderStaging].[HasDenyOrderType]  
+                ,[RevProviderStaging].[HasDisconnectOrderType]  
+                ,[RevProviderStaging].[HasE911OrderType]  
+                ,[RevProviderStaging].[HasLongDistanceBlockOrderType]  
+                ,[RevProviderStaging].[HasPortOrderType]  
+                ,[RevProviderStaging].[HasRestoreOrderType]  
+                ,[RevProviderStaging].[HasTransferOrderType]  
+                ,[RevProviderStaging].[IntegrationAuthenticationId]  
+                ,[RevBillProfile].[Id] AS [RevBillProfileId]  
+                ,ROW_NUMBER() OVER(PARTITION BY [ProviderId] ORDER BY [RevProviderStaging].[RevProviderStagingId] DESC) AS [RecordNumber]  
+            FROM [RevProviderStaging]  
+            LEFT JOIN [RevBillProfile] ON [RevProviderStaging].[BillProfileId] = [RevBillProfile].[BillProfileId] AND [RevProviderStaging].[IntegrationAuthenticationId] = [RevBillProfile].[IntegrationAuthenticationId]  
+        ) [RevProviderStg]  
+        WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[ProviderId] = [SOURCE].[ProviderId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT(  
+            [ProviderId]  
+            ,[Description]  
+            ,[ProviderCode]  
+            ,[HasCnamOrderType]  
+            ,[HasConversionOrderType]  
+            ,[HasDenyOrderType]  
+            ,[HasDisconnectOrderType]  
+            ,[HasE911OrderType]  
+            ,[HasLongDistanceBlockOrderType]  
+            ,[HasPortOrderType]  
+            ,[HasRestoreOrderType]  
+            ,[HasTransferOrderType]  
+            ,[IntegrationAuthenticationId]  
+            ,[CreatedBy]  
+            ,[CreatedDate]  
+            ,[IsDeleted]  
+            ,[IsActive]  
+            ,[RevBillProfileId]  
+        )  
+        VALUES(  
+            [SOURCE].[ProviderId]  
+            ,[SOURCE].[Description]  
+            ,[SOURCE].[ProviderCode]  
+            ,[SOURCE].[HasCnamOrderType]  
+            ,[SOURCE].[HasConversionOrderType]  
+            ,[SOURCE].[HasDenyOrderType]  
+            ,[SOURCE].[HasDisconnectOrderType]  
+            ,[SOURCE].[HasE911OrderType]  
+            ,[SOURCE].[HasLongDistanceBlockOrderType]  
+            ,[SOURCE].[HasPortOrderType]  
+            ,[SOURCE].[HasRestoreOrderType]  
+            ,[SOURCE].[HasTransferOrderType]  
+            ,[SOURCE].[IntegrationAuthenticationId]  
+            ,@processedBy  
+            ,ISNULL([SOURCE].[DateCreated], GETUTCDATE())  
+            ,0  
+            ,[SOURCE].[IsActive]  
+            ,[SOURCE].[RevBillProfileId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET [TARGET].[Description] = [SOURCE].[Description]  
+            ,[TARGET].[ProviderCode] = [SOURCE].[ProviderCode]  
+            ,[TARGET].[HasCnamOrderType] = [SOURCE].[HasCnamOrderType]  
+            ,[TARGET].[HasConversionOrderType] = [SOURCE].[HasConversionOrderType]  
+            ,[TARGET].[HasDenyOrderType] = [SOURCE].[HasDenyOrderType]  
+            ,[TARGET].[HasDisconnectOrderType] = [SOURCE].[HasDisconnectOrderType]  
+            ,[TARGET].[HasE911OrderType] = [SOURCE].[HasE911OrderType]  
+            ,[TARGET].[HasLongDistanceBlockOrderType] = [SOURCE].[HasLongDistanceBlockOrderType]  
+            ,[TARGET].[HasPortOrderType] = [SOURCE].[HasPortOrderType]  
+            ,[TARGET].[HasRestoreOrderType] = [SOURCE].[HasRestoreOrderType]  
+            ,[TARGET].[HasTransferOrderType] = [SOURCE].[HasTransferOrderType]  
+            ,[TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+            ,[TARGET].[ModifiedBy] = @processedBy  
+            ,[TARGET].[ModifiedDate] = GETUTCDATE()  
+            ,[TARGET].[IsActive] = [SOURCE].[IsActive]  
+            ,[TARGET].[IsDeleted] = ~[SOURCE].[IsActive]  
+            ,[TARGET].[RevBillProfileId] = [SOURCE].[RevBillProfileId];
+
+usp_Update_RevProductType_FromStaging
+
+-- =============================================  
+-- Author:  Miyuki Marriott  
+-- Create date: 2019-06-03  
+--  
+-- Parameter: N/A  
+--  
+-- Description: Updates [RevProductType] values based on the values in the staging table ([dbo].[RevProductTypeStaging]).  
+--  
+-- =============================================  
+CREATE PROCEDURE [dbo].[usp_Update_RevProductType_FromStaging]  
+    @IntegrationAuthenticationId INT   
+AS  
+BEGIN  
+    SET NOCOUNT ON;  
+  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevProductTypeStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevProductType_FromStaging';  
+    MERGE [dbo].[RevProductType] AS [TARGET]  
+    USING (  
+        SELECT [ProductTypeId],  
+            [ProductTypeCode],  
+            [Description],  
+            [TaxClassId],  
+            [IsActive],  
+            [IntegrationAuthenticationId]  
+        FROM  
+        (  
+            SELECT [RevProductTypeStaging].[ProductTypeId],  
+                [RevProductTypeStaging].[ProductTypeCode],  
+                [RevProductTypeStaging].[Description],  
+                [RevProductTypeStaging].[TaxClassId],  
+                [RevProductTypeStaging].[IsActive],  
+                [RevProductTypeStaging].[IntegrationAuthenticationId],  
+                ROW_NUMBER() OVER(PARTITION BY [ProductTypeId] ORDER BY [RevProductTypeStaging].[RevProductTypeStagingId] DESC) AS [RecordNumber]  
+            FROM [dbo].[RevProductTypeStaging]  
+        ) [RevProductTypeStg]  
+        WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[ProductTypeId] = [SOURCE].[ProductTypeId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT (  
+      [ProductTypeId],  
+      [ProductTypeCode],  
+      [Description],  
+      [TaxClassId],  
+      [CreatedBy],  
+      [CreatedDate],  
+      [ModifiedBy],  
+      [ModifiedDate],  
+      [DeletedBy],  
+      [DeletedDate],  
+      [IsDeleted],  
+      [IsActive],  
+      [IntegrationAuthenticationId]  
+     )  
+     VALUES (  
+      [SOURCE].[ProductTypeId],  
+      [SOURCE].[ProductTypeCode],  
+      [SOURCE].[Description],  
+      [SOURCE].[TaxClassId],  
+      @processedBy,  
+      GETUTCDATE(),  
+      NULL,  
+      NULL,  
+      NULL,  
+      NULL,  
+      0,  
+      [SOURCE].[IsActive],  
+      [SOURCE].[IntegrationAuthenticationId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET  
+            [TARGET].[ProductTypeCode] = [SOURCE].[ProductTypeCode],  
+      [TARGET].[Description] = [SOURCE].[Description],  
+      [TARGET].[TaxClassId] = [SOURCE].[TaxClassId],  
+      [TARGET].[IsActive] = ISNULL([SOURCE].[IsActive], 0),  
+      [TARGET].[IsDeleted] =   
+    CASE   
+     WHEN [SOURCE].[IsActive] IS NULL OR [SOURCE].[IsActive] = 0 THEN 1  
+     ELSE 0   
+    END,  
+      [TARGET].[ModifiedBy] = @processedBy,  
+      [TARGET].[ModifiedDate] = GETUTCDATE(),   
+      [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId];  
+END;
+
+usp_Update_RevProduct_FromStaging
+
+-- =============================================  
+-- Author:  Miyuki Marriott  
+-- Create date: 2019-07-08  
+--  
+-- Parameter: N/A  
+--  
+-- Description: Updates [RevProduct] values based on the values in the staging table ([dbo].[RevProductStaging]).  
+--  
+-- =============================================  
+CREATE PROCEDURE [dbo].[usp_Update_RevProduct_FromStaging]  
+      @IntegrationAuthenticationId INT   
+AS  
+BEGIN  
+    SET NOCOUNT ON;  
+  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevProductStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevProduct_FromStaging';  
+    MERGE [dbo].[RevProduct] AS [TARGET]  
+    USING (  
+        SELECT  
+            [ProductId],  
+            [ProductTypeId],  
+            [Description],  
+            [Code1],  
+            [Code2],  
+            [Rate],  
+            [Cost],  
+            [BuyRate],  
+            [CreatedDate],  
+            [CreatedBy],  
+            [CreatesOrder],  
+            [ProviderId],  
+            [BillsInArrears],  
+            [Prorates],  
+            [CustomerClass],  
+            [LongDescription],  
+            [LedgerCode],  
+            [FreeMonths],  
+            [AutomaticExpirationMonths],  
+            [OrderCompletionBilling],  
+            [TaxClassId],  
+            [WholesaleDescription],  
+            [MSISDN],  
+            [ICCID],  
+            [IMEI],  
+            [Active],  
+            [IntegrationAuthenticationId],  
+            [RevProviderId]  
+        FROM  
+        (  
+            SELECT  
+                [RevProductStaging].[ProductId],  
+                [RevProductStaging].[ProductTypeId],  
+                [RevProductStaging].[Description],  
+                [RevProductStaging].[Code1],  
+                [RevProductStaging].[Code2],  
+                [RevProductStaging].[Rate],  
+                [RevProductStaging].[Cost],  
+                [RevProductStaging].[BuyRate],  
+                [RevProductStaging].[CreatedDate],  
+                [RevProductStaging].[CreatedBy],  
+                [RevProductStaging].[CreatesOrder],  
+                [RevProductStaging].[ProviderId],  
+                [RevProductStaging].[BillsInArrears],  
+                [RevProductStaging].[Prorates],  
+                [RevProductStaging].[CustomerClass],  
+                [RevProductStaging].[LongDescription],  
+                [RevProductStaging].[LedgerCode],  
+                [RevProductStaging].[FreeMonths],  
+                [RevProductStaging].[AutomaticExpirationMonths],  
+                [RevProductStaging].[OrderCompletionBilling],  
+                [RevProductStaging].[TaxClassId],  
+                [RevProductStaging].[WholesaleDescription],  
+                [RevProductStaging].[MSISDN],  
+                [RevProductStaging].[ICCID],  
+                [RevProductStaging].[IMEI],  
+                [RevProductStaging].[Active],  
+                [RevProductStaging].[IntegrationAuthenticationId],  
+                [RevProvider].[Id] AS [RevProviderId],  
+                ROW_NUMBER() OVER(PARTITION BY [ProductId] ORDER BY [RevProductStaging].[RevProductStagingId] DESC) AS [RecordNumber]  
+            FROM [dbo].[RevProductStaging]  
+            LEFT JOIN [dbo].[RevProvider] ON [RevProductStaging].[ProviderId] = [RevProvider].[ProviderId] AND [RevProductStaging].[IntegrationAuthenticationId] = [RevProvider].[IntegrationAuthenticationId]  
+        ) [RevProductStg]  
+        WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[ProductId] = [SOURCE].[ProductId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT (  
+            [ProductId],  
+            [ProductTypeId],  
+            [Description],  
+            [Code1],  
+            [Code2],  
+            [Rate],  
+            [Cost],  
+            [BuyRate],  
+            [CreatedDate],  
+            [CreatedBy],  
+            [CreatesOrder],  
+            [ProviderId],  
+            [BillsInArrears],  
+            [Prorates],  
+            [CustomerClass],  
+            [LongDescription],  
+            [LedgerCode],  
+            [FreeMonths],  
+            [AutomaticExpirationMonths],  
+            [OrderCompletionBilling],  
+            [TaxClassId],  
+            [WholesaleDescription],  
+            [MSISDN],  
+            [ICCID],  
+            [IMEI],  
+            [ModifiedBy],  
+            [ModifiedDate],  
+            [DeletedBy] ,  
+            [DeletedDate],  
+            [IsDeleted],  
+            [IsActive],  
+            [IntegrationAuthenticationId],  
+            [RevProviderId]  
+        )  
+        VALUES (  
+            [SOURCE].[ProductId],  
+            [SOURCE].[ProductTypeId],  
+            [SOURCE].[Description],  
+            [SOURCE].[Code1],  
+            [SOURCE].[Code2],  
+            [SOURCE].[Rate],  
+            [SOURCE].[Cost],  
+            [SOURCE].[BuyRate],  
+            [SOURCE].[CreatedDate],  
+            ISNULL(CAST([SOURCE].[CreatedBy] AS NVARCHAR(50)), @processedBy),  
+            [SOURCE].[CreatesOrder],  
+            [SOURCE].[ProviderId],  
+            [SOURCE].[BillsInArrears],  
+            [SOURCE].[Prorates],  
+            [SOURCE].[CustomerClass],  
+            [SOURCE].[LongDescription],  
+            [SOURCE].[LedgerCode],  
+            [SOURCE].[FreeMonths],  
+            [SOURCE].[AutomaticExpirationMonths],  
+            [SOURCE].[OrderCompletionBilling],  
+            [SOURCE].[TaxClassId],  
+            [SOURCE].[WholesaleDescription],  
+            [SOURCE].[MSISDN],  
+            [SOURCE].[ICCID],  
+            [SOURCE].[IMEI],  
+            NULL,  
+            NULL,  
+            NULL,  
+            NULL,  
+            0,  
+            [SOURCE].[Active],  
+            [SOURCE].[IntegrationAuthenticationId],  
+            [SOURCE].[RevProviderId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+     SET  
+            [TARGET].[ProductTypeId] = [SOURCE].[ProductTypeId],  
+            [TARGET].[Description] = [SOURCE].[Description],  
+            [TARGET].[Code1] = [SOURCE].[Code1],  
+            [TARGET].[Code2] = [SOURCE].[Code2],  
+            [TARGET].[Rate] = [SOURCE].[Rate],  
+            [TARGET].[Cost] = [SOURCE].[Cost],  
+            [TARGET].[BuyRate] = [SOURCE].[BuyRate],  
+            [TARGET].[CreatedDate] = [SOURCE].[CreatedDate],  
+            [TARGET].[CreatedBy] = ISNULL(CAST([SOURCE].[CreatedBy] AS NVARCHAR(50)), @processedBy),  
+            [TARGET].[CreatesOrder] = [SOURCE].[CreatesOrder],  
+            [TARGET].[ProviderId] = [SOURCE].[ProviderId],  
+            [TARGET].[BillsInArrears] = [SOURCE].[BillsInArrears],  
+            [TARGET].[Prorates] = [SOURCE].[Prorates],  
+            [TARGET].[CustomerClass] = [SOURCE].[CustomerClass],  
+            [TARGET].[LongDescription] = [SOURCE].[LongDescription],  
+            [TARGET].[LedgerCode] = [SOURCE].[LedgerCode],  
+            [TARGET].[FreeMonths] = [SOURCE].[FreeMonths],  
+            [TARGET].[AutomaticExpirationMonths] = [SOURCE].[AutomaticExpirationMonths],  
+            [TARGET].[OrderCompletionBilling] = [SOURCE].[OrderCompletionBilling],  
+            [TARGET].[TaxClassId] = [SOURCE].[TaxClassId],  
+            [TARGET].[WholesaleDescription] = [SOURCE].[WholesaleDescription],  
+            [TARGET].[MSISDN] = [SOURCE].[MSISDN],  
+            [TARGET].[ICCID] = [SOURCE].[ICCID],  
+            [TARGET].[IMEI] = [SOURCE].[IMEI],  
+            [IsActive] = ISNULL([SOURCE].[Active], 0),  
+            [IsDeleted] =   
+                CASE   
+                    WHEN [SOURCE].[Active] IS NULL OR [SOURCE].[Active] = 0 THEN 1  
+                    ELSE 0   
+                END,  
+            [TARGET].[ModifiedBy] = @processedBy,  
+            [TARGET].[ModifiedDate] = GETUTCDATE(),   
+            [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId],  
+            [TARGET].[RevProviderId] = [SOURCE].[RevProviderId];  
+END;
+
+usp_Update_RevServiceType
+
+CREATE PROCEDURE [dbo].[usp_Update_RevServiceType]  
+   @IntegrationAuthenticationId INT  
+AS  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevServiceTypeStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevServiceType';  
+    MERGE [dbo].[RevServiceType] AS [TARGET]  
+    USING  
+    (  
+        SELECT  
+            [ServiceTypeId]  
+   ,[Description]  
+   ,[IsActive]  
+   ,[IntegrationAuthenticationId]  
+        FROM  
+        (  
+            SELECT   
+                [RevServiceTypeStaging].[ServiceTypeId]  
+    ,[RevServiceTypeStaging].[Description]  
+    ,[RevServiceTypeStaging].[IsActive]  
+    ,[RevServiceTypeStaging].[IntegrationAuthenticationId]  
+                ,ROW_NUMBER() OVER(PARTITION BY [ServiceTypeId] ORDER BY [RevServiceTypeStaging].[RevServiceTypeStagingId] DESC) AS [RecordNumber]  
+            FROM [RevServiceTypeStaging]  
+        ) [RevServiceTypeStg]  
+        WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[ServiceTypeId] = [SOURCE].[ServiceTypeId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT(  
+            [ServiceTypeId]  
+   ,[Description]  
+   ,[IntegrationAuthenticationId]  
+            ,[CreatedBy]  
+            ,[CreatedDate]  
+            ,[IsDeleted]  
+            ,[IsActive]  
+        )  
+        VALUES(  
+            [SOURCE].[ServiceTypeId]  
+   ,[SOURCE].[Description]  
+   ,[SOURCE].[IntegrationAuthenticationId]  
+            ,@processedBy  
+            ,GETUTCDATE()  
+            ,0  
+            ,[SOURCE].[IsActive]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET [TARGET].[Description] = [SOURCE].[Description]  
+            ,[TARGET].[ModifiedBy] = @processedBy  
+            ,[TARGET].[ModifiedDate] = GETUTCDATE()  
+            ,[TARGET].[IsActive] = [SOURCE].[IsActive]  
+            ,[TARGET].[IsDeleted] = ~[SOURCE].[IsActive];
+
+usp_Update_RevService
+
+CREATE PROCEDURE [dbo].[usp_Update_RevService]  
+    @IntegrationAuthenticationId INT,  
+    @JasperDbName NVARCHAR(50)  
+AS  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevServiceStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevService';  
+    MERGE [dbo].[RevService] AS [TARGET]  
+    USING  
+    (  
+        SELECT [RevCustomerId],  
+            [Number],  
+            [RevServiceId],  
+            [RatePlanCode],  
+            [ActivatedDate],  
+            [DisconnectedDate],  
+            [IntegrationAuthenticationId],  
+            [RevProviderId],  
+            [RevServiceTypeId],  
+            [Description]  
+        FROM  
+        (  
+            SELECT   
+                [RevCustomer].[id] AS [RevCustomerId],  
+                [Number],  
+                [RevServiceId],  
+                [RevServiceStaging].[RatePlanCode],  
+                [RevServiceStaging].[ActivatedDate],  
+                [RevServiceStaging].[DisconnectedDate],  
+                [RevServiceStaging].[IntegrationAuthenticationId],  
+                [RevProvider].[Id] AS [RevProviderId],  
+                [RevServiceType].[Id] AS [RevServiceTypeId],  
+                ROW_NUMBER() OVER(PARTITION BY [RevServiceId], [RevServiceStaging].[IntegrationAuthenticationId] ORDER BY [Number]) AS [RowNumber],  
+                [RevServiceStaging].[Description]  
+            FROM [RevServiceStaging]  
+            INNER JOIN [RevCustomer] ON [RevServiceStaging].[RevCustomerId] = [RevCustomer].[RevCustomerId] AND [RevServiceStaging].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+            LEFT JOIN [dbo].[RevProvider] ON [RevServiceStaging].[RevProviderId] = [RevProvider].[ProviderId] AND [RevServiceStaging].[IntegrationAuthenticationId] = [RevProvider].[IntegrationAuthenticationId]  
+            LEFT JOIN [dbo].[RevServiceType] ON [RevServiceStaging].[ServiceTypeId] = [RevServiceType].[ServiceTypeId] AND [RevServiceStaging].[IntegrationAuthenticationId] = [RevServiceType].[IntegrationAuthenticationId]  
+        ) [RevServiceStg]  
+        WHERE [RowNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].RevServiceId = [SOURCE].RevServiceId AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT(  
+            [RevCustomerId]  
+            ,[Number]  
+            ,[RevServiceId]  
+            ,[RatePlanCode]  
+            ,[ActivatedDate]  
+            ,[DisconnectedDate]  
+            ,[CreatedBy]  
+            ,[CreatedDate]  
+            ,[IsDeleted]  
+            ,[IsActive]  
+            ,[IntegrationAuthenticationId]  
+            ,[RevProviderId]  
+            ,[RevServiceTypeId]  
+            ,[Description]  
+        )  
+        VALUES(  
+            [SOURCE].[RevCustomerId]  
+            ,[SOURCE].[Number]  
+            ,[SOURCE].[RevServiceId]  
+            ,[SOURCE].[RatePlanCode]  
+            ,[SOURCE].[ActivatedDate]  
+            ,[SOURCE].[DisconnectedDate]  
+            ,@processedBy  
+            ,GETUTCDATE()  
+            ,0  
+            ,1  
+            ,[SOURCE].[IntegrationAuthenticationId]  
+            ,[SOURCE].[RevProviderId]  
+            ,[SOURCE].[RevServiceTypeId]  
+            ,[SOURCE].[Description]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+        SET  
+            [TARGET].[IsDeleted] = 1,  
+            [TARGET].[IsActive] = 0,  
+            [TARGET].[ModifiedBy] = @processedBy,  
+            [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED AND (  
+                        TARGET.[Number] <> SOURCE.[Number]  
+                        OR TARGET.[RevCustomerId] <> SOURCE.[RevCustomerId]   
+                        OR TARGET.[RatePlanCode] <> SOURCE.[RatePlanCode]   
+                        OR TARGET.[ActivatedDate] <> SOURCE.[ActivatedDate]  
+                     OR TARGET.[DisconnectedDate] <> SOURCE.[DisconnectedDate]  
+                        OR TARGET.[IntegrationAuthenticationId] <> SOURCE.[IntegrationAuthenticationId]  
+      OR TARGET.[RevProviderId] <> SOURCE.[RevProviderId]  
+      OR TARGET.[RevServiceTypeId] <> SOURCE.[RevServiceTypeId]  
+      OR TARGET.[Description] <> SOURCE.[Description]  
+      OR (TARGET.IsDeleted = 1)  
+      OR (TARGET.IsActive = 0)) THEN  
+        UPDATE  
+        SET [TARGET].[Number] = [SOURCE].[Number],  
+            [TARGET].[RevCustomerId] = [SOURCE].[RevCustomerId],  
+            [TARGET].[RatePlanCode] = [SOURCE].[RatePlanCode],  
+            [TARGET].[ActivatedDate] = [SOURCE].[ActivatedDate],  
+            [TARGET].[DisconnectedDate] = [SOURCE].[DisconnectedDate],  
+            [TARGET].[ModifiedBy] = @processedBy,  
+            [TARGET].[ModifiedDate] = GETUTCDATE(),  
+            [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId],  
+            [TARGET].[RevProviderId] = [SOURCE].[RevProviderId],  
+            [TARGET].[RevServiceTypeId] = [SOURCE].[RevServiceTypeId],  
+            [TARGET].[Description] = [SOURCE].[Description],  
+            [TARGET].[IsDeleted] = 0,  
+            [TARGET].[IsActive] = 1;  
+  
+    -- Populate Device_Tenant  
+    MERGE [dbo].[Device_Tenant] AS [TARGET]  
+    USING  
+    (  
+        SELECT [DeviceId],  
+            [TenantId],  
+            [SiteId],  
+            [AccountNumber],  
+            [IntegrationAuthenticationId],  
+            [RevServiceId],  
+            [DisconnectedDate]  
+        FROM  
+        (  
+            SELECT   
+                [DeviceId],  
+                [TenantId],  
+                [SiteId],  
+                [AccountNumber],  
+                [IntegrationAuthenticationId],  
+                [RevServiceId],  
+                [Number],  
+                [ActivatedDate],  
+                [DisconnectedDate],  
+                ROW_NUMBER() OVER(PARTITION BY [IntegrationAuthenticationId], [DeviceId] ORDER BY [Status], [DisconnectedDate] DESC, [ActivatedDate] DESC) AS [RecordNumber]  
+            FROM  
+                (  
+                SELECT [Device].[id] AS [DeviceId],  
+                    [Site].[TenantId],  
+                    [Site].[id] AS [SiteId],  
+                    [RevCustomer].[RevCustomerId] AS [AccountNumber],  
+                    [RevCustomer].[IntegrationAuthenticationId],  
+                    [RevService].[Id] AS [RevServiceId],  
+                    [RevService].[Number],  
+                    [RevService].[ActivatedDate],  
+                    CAST(ISNULL([RevServiceProduct].[CanceledDate], '9999-12-31T00:00:00') AS DATETIME) AS [DisconnectedDate],  
+     [RevServiceProduct].[Status]  
+                FROM [Device]  
+                INNER JOIN [RevService] ON [Device].[MSISDN] = [RevService].[Number] AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+    LEFT JOIN [RevServiceProduct] ON [RevServiceProduct].[ServiceId] = [RevService].[RevServiceId]   
+     AND [RevServiceProduct].[IsActive] = 1   
+     AND [RevServiceProduct].[IsDeleted] = 0  
+                    AND [RevServiceProduct].[IntegrationAuthenticationId] = [RevService].[IntegrationAuthenticationId]  
+                INNER JOIN [Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+                LEFT JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Site] ON [Site].[RevCustomerId] = [RevCustomer].[Id]   
+                    AND [Site].[TenantId] = [Integration_Authentication].[TenantId]  
+                    AND [Site].[IsActive] = 1  
+                    AND [Site].[IsDeleted] = 0  
+                WHERE [Device].[IsActive] = 1   
+                    AND [Device].[IsDeleted] = 0  
+                    AND [Integration_Authentication].[IsActive] = 1   
+                    AND [Integration_Authentication].[IsDeleted] = 0   
+                    AND [RevCustomer].[IsActive] = 1  
+                    AND [RevCustomer].[IsDeleted] = 0  
+                    AND [RevService].[IsActive] = 1  
+                    AND [RevService].[IsDeleted] = 0  
+  
+                UNION  
+  
+                SELECT [Device].[id] AS [DeviceId],  
+                    [Site].[TenantId],  
+                    [Site].[id] AS [SiteId],  
+                    [RevCustomer].[RevCustomerId] AS [AccountNumber],  
+                    [RevCustomer].[IntegrationAuthenticationId],  
+                    [RevService].[Id] AS [RevServiceId],  
+                    [RevService].[Number],  
+                    [RevService].[ActivatedDate],  
+                    CAST(ISNULL([RevServiceProduct].[CanceledDate], '9999-12-31T00:00:00') AS DATETIME) AS [DisconnectedDate],  
+     [RevServiceProduct].[Status]  
+                FROM [Device]  
+                INNER JOIN [RevService] ON [Device].[MSISDN] = '1' + [RevService].[Number] AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+    LEFT JOIN [RevServiceProduct] ON [RevServiceProduct].[ServiceId] = [RevService].[RevServiceId]   
+     AND [RevServiceProduct].[IsActive] = 1   
+     AND [RevServiceProduct].[IsDeleted] = 0  
+                    AND [RevServiceProduct].[IntegrationAuthenticationId] = [RevService].[IntegrationAuthenticationId]  
+                INNER JOIN [Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+                LEFT JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Site] ON [Site].[RevCustomerId] = [RevCustomer].[Id]   
+                    AND [Site].[TenantId] = [Integration_Authentication].[TenantId]  
+                    AND [Site].[IsActive] = 1  
+                    AND [Site].[IsDeleted] = 0  
+                WHERE [Device].[IsActive] = 1   
+                    AND [Device].[IsDeleted] = 0  
+                    AND [Integration_Authentication].[IsActive] = 1   
+                    AND [Integration_Authentication].[IsDeleted] = 0  
+                    AND [RevCustomer].[IsActive] = 1  
+                    AND [RevCustomer].[IsDeleted] = 0  
+                    AND [RevService].[IsActive] = 1  
+                    AND [RevService].[IsDeleted] = 0  
+  
+                UNION  
+  
+                SELECT [Device].[id] AS [DeviceId],  
+                    [Site].[TenantId],  
+                    [Site].[id] AS [SiteId],  
+                    [RevCustomer].[RevCustomerId] AS [AccountNumber],  
+                    [RevCustomer].[IntegrationAuthenticationId],  
+                    [RevService].[Id] AS [RevServiceId],  
+                    [RevService].[Number],  
+                    [RevService].[ActivatedDate],  
+                    CAST(ISNULL([RevServiceProduct].[CanceledDate], '9999-12-31T00:00:00') AS DATETIME) AS [DisconnectedDate],  
+     [RevServiceProduct].[Status]  
+                FROM [Device]  
+                INNER JOIN [RevService] ON [Device].[ICCID] = [RevService].[Number] AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+    LEFT JOIN [RevServiceProduct] ON [RevServiceProduct].[ServiceId] = [RevService].[RevServiceId]   
+     AND [RevServiceProduct].[IsActive] = 1   
+     AND [RevServiceProduct].[IsDeleted] = 0  
+                    AND [RevServiceProduct].[IntegrationAuthenticationId] = [RevService].[IntegrationAuthenticationId]  
+                INNER JOIN [Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+                LEFT JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Site] ON [Site].[RevCustomerId] = [RevCustomer].[Id]   
+ AND [Site].[TenantId] = [Integration_Authentication].[TenantId]  
+                    AND [Site].[IsActive] = 1  
+                    AND [Site].[IsDeleted] = 0  
+                INNER JOIN [ServiceProvider] ON [ServiceProvider].[id] = [Device].[ServiceProviderId]   
+                    AND [ServiceProvider].[IsActive] = 1 AND [ServiceProvider].[IsDeleted] = 0  
+                WHERE [Device].[IsActive] = 1   
+                    AND [Device].[IsDeleted] = 0  
+                    AND [Integration_Authentication].[IsActive] = 1   
+                    AND [Integration_Authentication].[IsDeleted] = 0  
+                    AND [RevCustomer].[IsActive] = 1  
+                    AND [RevCustomer].[IsDeleted] = 0  
+                    AND [RevService].[IsActive] = 1  
+                    AND [RevService].[IsDeleted] = 0  
+                    AND [ServiceProvider].[IntegrationId] = 13  
+  
+                UNION  
+  
+                SELECT [Device].[id] AS [DeviceId],  
+                    [Site].[TenantId],  
+                    [Site].[id] AS [SiteId],  
+                    [RevCustomer].[RevCustomerId] AS [AccountNumber],  
+                    [RevCustomer].[IntegrationAuthenticationId],  
+                    [RevService].[Id] AS [RevServiceId],  
+                    [RevService].[Number],  
+                    [RevService].[ActivatedDate],  
+                    CAST(ISNULL([RevServiceProduct].[CanceledDate], '9999-12-31T00:00:00') AS DATETIME) AS [DisconnectedDate],  
+     [RevServiceProduct].[Status]  
+                FROM [Device]  
+                INNER JOIN [RevService] ON [Device].[EID] = [RevService].[Number] AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+    LEFT JOIN [RevServiceProduct] ON [RevServiceProduct].[ServiceId] = [RevService].[RevServiceId]   
+     AND [RevServiceProduct].[IsActive] = 1   
+     AND [RevServiceProduct].[IsDeleted] = 0  
+                    AND [RevServiceProduct].[IntegrationAuthenticationId] = [RevService].[IntegrationAuthenticationId]  
+                INNER JOIN [Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+                LEFT JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Site] ON [Site].[RevCustomerId] = [RevCustomer].[Id]   
+                    AND [Site].[TenantId] = [Integration_Authentication].[TenantId]  
+                    AND [Site].[IsActive] = 1  
+                    AND [Site].[IsDeleted] = 0  
+                INNER JOIN [ServiceProvider] ON [ServiceProvider].[id] = [Device].[ServiceProviderId]   
+                    AND [ServiceProvider].[IsActive] = 1 AND [ServiceProvider].[IsDeleted] = 0  
+                WHERE [Device].[IsActive] = 1   
+                    AND [Device].[IsDeleted] = 0  
+                    AND [Integration_Authentication].[IsActive] = 1   
+                    AND [Integration_Authentication].[IsDeleted] = 0  
+                    AND [RevCustomer].[IsActive] = 1  
+                    AND [RevCustomer].[IsDeleted] = 0  
+                    AND [RevService].[IsActive] = 1  
+                    AND [RevService].[IsDeleted] = 0  
+                    AND [ServiceProvider].[IntegrationId] = 12  
+            ) [DeviceTenant]  
+            WHERE [Status] IS NOT NULL  
+        ) [DeviceTenant1]  
+        WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[TenantId] = [SOURCE].[TenantId] AND [TARGET].[DeviceId] = [SOURCE].[DeviceId]  
+    WHEN NOT MATCHED THEN  
+        INSERT (  
+            [DeviceId]  
+            ,[TenantId]  
+            ,[RevServiceId]  
+            ,[AccountNumber]  
+            ,[SiteId]  
+            ,[AccountNumberIntegrationAuthenticationId]  
+            ,[CreatedBy]  
+            ,[CreatedDate]  
+            ,[IsActive]  
+            ,[IsDeleted]  
+        )  
+        VALUES  
+        (  
+            [SOURCE].[DeviceId]  
+            ,[SOURCE].[TenantId]  
+            ,[SOURCE].[RevServiceId]  
+            ,[SOURCE].[AccountNumber]  
+            ,[SOURCE].[SiteId]  
+            ,[SOURCE].[IntegrationAuthenticationId]  
+            ,@processedBy  
+            ,GETUTCDATE()  
+            ,1  
+            ,0  
+        )  
+    WHEN MATCHED AND ([TARGET].[SiteId] = [SOURCE].[SiteId] OR [SOURCE].[DisconnectedDate] IS NULL OR [SOURCE].[DisconnectedDate] = '9999-12-31T00:00:00') THEN  
+        UPDATE  
+        SET [TARGET].[RevServiceId] = [SOURCE].[RevServiceId]  
+            ,[TARGET].[AccountNumber] = [SOURCE].[AccountNumber]  
+            ,[TARGET].[SiteId] = [SOURCE].[SiteId]  
+            ,[TARGET].[AccountNumberIntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+            ,[TARGET].[ModifiedBy] = @processedBy  
+            ,[TARGET].[ModifiedDate] = GETUTCDATE();  
+  
+    -- Populate MobilityDevice_Tenant  
+    MERGE [dbo].[MobilityDevice_Tenant] AS [TARGET]  
+    USING  
+    (  
+        SELECT [MobilityDeviceId],  
+            [TenantId],  
+            [SiteId],  
+            [AccountNumber],  
+            [IntegrationAuthenticationId],  
+            [RevServiceId],  
+            [DisconnectedDate]  
+        FROM  
+        (  
+            SELECT   
+                [MobilityDeviceId],  
+                [TenantId],  
+                [SiteId],  
+                [AccountNumber],  
+                [IntegrationAuthenticationId],  
+                [RevServiceId],  
+                [Number],  
+                [ActivatedDate],  
+                [DisconnectedDate],  
+                ROW_NUMBER() OVER(PARTITION BY [IntegrationAuthenticationId], [MobilityDeviceId] ORDER BY [Status], [DisconnectedDate] DESC, [ActivatedDate] DESC) AS [RecordNumber]  
+            FROM  
+                (  
+                SELECT [MobilityDevice].[id] AS [MobilityDeviceId],  
+                    [Site].[TenantId],  
+                    [Site].[id] AS [SiteId],  
+                    [RevCustomer].[RevCustomerId] AS [AccountNumber],  
+                    [RevCustomer].[IntegrationAuthenticationId],  
+                    [RevService].[Id] AS [RevServiceId],  
+                    [RevService].[Number],  
+                    [RevService].[ActivatedDate],  
+                    CAST(ISNULL([RevServiceProduct].[CanceledDate], '9999-12-31T00:00:00') AS DATETIME) AS [DisconnectedDate],  
+     [RevServiceProduct].[Status]  
+                FROM [MobilityDevice]  
+                INNER JOIN [RevService] ON [MobilityDevice].[MSISDN] = [RevService].[Number] AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+    LEFT JOIN [RevServiceProduct] ON [RevServiceProduct].[ServiceId] = [RevService].[RevServiceId]   
+     AND [RevServiceProduct].[IsActive] = 1   
+     AND [RevServiceProduct].[IsDeleted] = 0  
+                    AND [RevServiceProduct].[IntegrationAuthenticationId] = [RevService].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+                LEFT JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Site] ON [Site].[RevCustomerId] = [RevCustomer].[Id]   
+                    AND [Site].[TenantId] = [Integration_Authentication].[TenantId]  
+                    AND [Site].[IsActive] = 1  
+                    AND [Site].[IsDeleted] = 0  
+                WHERE [MobilityDevice].[IsActive] = 1   
+                    AND [MobilityDevice].[IsDeleted] = 0   
+                    AND [Integration_Authentication].[IsActive] = 1   
+                    AND [Integration_Authentication].[IsDeleted] = 0  
+                    AND [RevCustomer].[IsActive] = 1  
+                    AND [RevCustomer].[IsDeleted] = 0  
+                    AND [RevService].[IsActive] = 1  
+                    AND [RevService].[IsDeleted] = 0  
+  
+                UNION  
+  
+                SELECT [MobilityDevice].[id] AS [MobilityDeviceId],  
+                    [Site].[TenantId],  
+                    [Site].[id] AS [SiteId],  
+                    [RevCustomer].[RevCustomerId] AS [AccountNumber],  
+                    [RevCustomer].[IntegrationAuthenticationId],  
+                    [RevService].[Id] AS [RevServiceId],  
+                    [RevService].[Number],  
+                    [RevService].[ActivatedDate],  
+                    CAST(ISNULL([RevServiceProduct].[CanceledDate], '9999-12-31T00:00:00') AS DATETIME) AS [DisconnectedDate],  
+     [RevServiceProduct].[Status]  
+                FROM [MobilityDevice]  
+                INNER JOIN [RevService] ON [MobilityDevice].[MSISDN] = '1' + [RevService].[Number] AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+    LEFT JOIN [RevServiceProduct] ON [RevServiceProduct].[ServiceId] = [RevService].[RevServiceId]   
+     AND [RevServiceProduct].[IsActive] = 1   
+     AND [RevServiceProduct].[IsDeleted] = 0  
+                    AND [RevServiceProduct].[IntegrationAuthenticationId] = [RevService].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+                LEFT JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+                INNER JOIN [dbo].[Site] ON [Site].[RevCustomerId] = [RevCustomer].[Id]   
+                    AND [Site].[TenantId] = [Integration_Authentication].[TenantId]  
+                    AND [Site].[IsActive] = 1  
+                    AND [Site].[IsDeleted] = 0  
+                WHERE [MobilityDevice].[IsActive] = 1   
+                    AND [MobilityDevice].[IsDeleted] = 0  
+                    AND [Integration_Authentication].[IsActive] = 1   
+                    AND [Integration_Authentication].[IsDeleted] = 0  
+                    AND [RevCustomer].[IsActive] = 1  
+                    AND [RevCustomer].[IsDeleted] = 0  
+                    AND [RevService].[IsActive] = 1  
+                    AND [RevService].[IsDeleted] = 0  
+            ) [DeviceTenant]  
+            WHERE [Status] IS NOT NULL  
+        ) [DeviceTenant1]  
+        WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[TenantId] = [SOURCE].[TenantId] AND [TARGET].[MobilityDeviceId] = [SOURCE].[MobilityDeviceId]  
+    WHEN NOT MATCHED THEN  
+        INSERT (  
+            [MobilityDeviceId]  
+            ,[TenantId]  
+            ,[RevServiceId]  
+            ,[AccountNumber]  
+            ,[SiteId]  
+            ,[AccountNumberIntegrationAuthenticationId]  
+            ,[CreatedBy]  
+            ,[CreatedDate]  
+            ,[IsActive]  
+            ,[IsDeleted]  
+        )  
+        VALUES  
+        (  
+            [SOURCE].[MobilityDeviceId]  
+            ,[SOURCE].[TenantId]  
+            ,[SOURCE].[RevServiceId]  
+            ,[SOURCE].[AccountNumber]  
+            ,[SOURCE].[SiteId]  
+            ,[SOURCE].[IntegrationAuthenticationId]  
+            ,@processedBy  
+            ,GETUTCDATE()  
+            ,1  
+            ,0  
+        )  
+    WHEN MATCHED AND ([TARGET].[SiteId] = [SOURCE].[SiteId] OR [SOURCE].[DisconnectedDate] IS NULL OR [SOURCE].[DisconnectedDate] = '9999-12-31T00:00:00') THEN  
+        UPDATE  
+        SET [TARGET].[RevServiceId] = [SOURCE].[RevServiceId]  
+            ,[TARGET].[AccountNumber] = [SOURCE].[AccountNumber]  
+            ,[TARGET].[SiteId] = [SOURCE].[SiteId]  
+            ,[TARGET].[AccountNumberIntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+            ,[TARGET].[ModifiedBy] = @processedBy  
+            ,[TARGET].[ModifiedDate] = GETUTCDATE();  
+  
+    -- Clear Rev Service Association if Site does not match  
+    UPDATE [Device_Tenant]  
+    SET [RevServiceId] = NULL  
+    FROM [Device_Tenant]  
+    INNER JOIN [RevService] ON [RevService].[id] = [Device_Tenant].[RevServiceId]  
+  AND [RevService].[IsActive] = 1   
+  AND [RevService].[IsDeleted] = 0  
+ INNER JOIN [Integration_Authentication] ON [Integration_Authentication].[id] = [IntegrationAuthenticationId]  
+  AND [Integration_Authentication].[IsActive] = 1  
+  AND [Integration_Authentication].[IsDeleted] = 0  
+    INNER JOIN [Site] ON [RevService].[RevCustomerId] = [Site].[RevCustomerId]  
+  AND [Site].[TenantId] = [Integration_Authentication].[TenantId]   
+  AND [Site].[IsActive] = 1  
+  AND [Site].[IsDeleted] = 0  
+    WHERE [Site].[id] <> [Device_Tenant].[SiteId];  
+  
+    UPDATE [MobilityDevice_Tenant]  
+    SET [RevServiceId] = NULL  
+    FROM [MobilityDevice_Tenant]  
+    INNER JOIN [RevService] ON [RevService].[id] = [MobilityDevice_Tenant].[RevServiceId]  
+  AND [RevService].[IsActive] = 1   
+  AND [RevService].[IsDeleted] = 0  
+ INNER JOIN [Integration_Authentication] ON [Integration_Authentication].[id] = [IntegrationAuthenticationId]  
+  AND [Integration_Authentication].[IsActive] = 1  
+  AND [Integration_Authentication].[IsDeleted] = 0  
+    INNER JOIN [Site] ON [RevService].[RevCustomerId] = [Site].[RevCustomerId]  
+  AND [Site].[TenantId] = [Integration_Authentication].[TenantId]   
+  AND [Site].[IsActive] = 1  
+  AND [Site].[IsDeleted] = 0  
+    WHERE [Site].[id] <> [MobilityDevice_Tenant].[SiteId];  
+  
+    -- Clear the Rev Service Association if the device has already been deleted  
+    UPDATE [Device_Tenant]  
+    SET [RevServiceId] = NULL  
+    FROM [Device_Tenant]  
+    INNER JOIN [Device] ON [Device].[id] = [Device_Tenant].[DeviceId]  
+    WHERE [Device].[IsActive] = 0 AND [Device].[IsDeleted] = 1;  
+  
+    UPDATE [MobilityDevice_Tenant]  
+    SET [RevServiceId] = NULL  
+    FROM [MobilityDevice_Tenant]  
+    INNER JOIN [MobilityDevice] ON [MobilityDevice].[id] = [MobilityDevice_Tenant].[MobilityDeviceId]  
+    WHERE [MobilityDevice].[IsActive] = 0 AND [MobilityDevice].[IsDeleted] = 1;  
+      
+ -- Clear the Rev Service with existing MobilityDevice_Tenant when the telephone number changed in Rev IO  
+ --For Mobility   
+  UPDATE [MobilityDeviceTenant] SET [MobilityDeviceTenant].[RevServiceId] = NULL FROM [MobilityDevice_Tenant] [MobilityDeviceTenant]    
+  INNER JOIN [RevService] ON [RevService].[id] = [MobilityDeviceTenant].[RevServiceId]  
+  INNER JOIN [dbo].[Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+  INNER JOIN [MobilityDevice] ON [MobilityDeviceTenant].[MobilityDeviceId] = [MobilityDevice].[id]   
+   AND [RevService].[Number] <> [MobilityDevice].[MSISDN]   
+   AND '1' + [RevService].[Number] <> [MobilityDevice].[MSISDN]  
+   AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+  INNER JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+  WHERE [MobilityDeviceTenant].[IsActive] = 1 AND [MobilityDeviceTenant].[IsDeleted] = 0  
+   AND [Integration_Authentication].[IsActive] = 1   
+   AND [Integration_Authentication].[IsDeleted] = 0  
+   AND [RevService].[IsActive] = 1  
+   AND [RevService].[IsDeleted] = 0  
+   AND [RevCustomer].[IsActive] = 1  
+         AND [RevCustomer].[IsDeleted] = 0;  
+   
+  --For M2M  
+  UPDATE [Device_Tenant] SET [Device_Tenant].[RevServiceId] = NULL FROM [Device_Tenant]  
+  INNER JOIN [RevService] ON [RevService].[id] = [Device_Tenant].[RevServiceId]  
+   INNER JOIN [dbo].[Integration_Authentication] ON [Integration_Authentication].[id] = [RevService].[IntegrationAuthenticationId]  
+  INNER JOIN [Device] ON [Device_Tenant].[DeviceId] = [Device].[id] AND [RevService].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+  INNER JOIN [RevCustomer] ON [RevService].[RevCustomerId] = [RevCustomer].[id] AND [RevService].[IntegrationAuthenticationId] = [RevCustomer].[IntegrationAuthenticationId]  
+  WHERE (ISNULL([Device].[EID],'') <> [RevService].[Number] AND ISNULL([Device].[ICCID],'') <> [RevService].[Number])   
+   AND ISNULL([Device].[MSISDN],'') <> [RevService].[Number]   
+   AND ISNULL([Device].[MSISDN],'') <> '1' + [RevService].[Number]  
+   AND [Device_Tenant].[IsActive] = 1 AND [Device_Tenant].[IsDeleted] = 0  
+   AND [Device].[IsActive] = 1   
+   AND [Device].[IsDeleted] = 0  
+   AND [Integration_Authentication].[IsActive] = 1   
+   AND [Integration_Authentication].[IsDeleted] = 0   
+   AND [RevCustomer].[IsActive] = 1  
+   AND [RevCustomer].[IsDeleted] = 0  
+   AND [RevService].[IsActive] = 1  
+   AND [RevService].[IsDeleted] = 0;  
+  
+    -- Set Default Site  
+    INSERT INTO [Device_Tenant] ([DeviceId], [TenantId], [AccountNumber], [SiteId], [AccountNumberIntegrationAuthenticationId])  
+    SELECT [Device].[id] AS [DeviceId], [Site].[TenantId], [RevCustomer].[RevCustomerId] AS [AccountNumber], [Site].[id] AS [SiteId], [RevCustomer].[IntegrationAuthenticationId]  
+    FROM [Device]  
+    INNER JOIN [ServiceProvider] ON [Device].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[IsDeleted] = 0 AND [Site].[IsSystemDefault] = 1  
+    LEFT JOIN [RevCustomer] ON [Site].[RevCustomerId] = [RevCustomer].[id]  
+    LEFT JOIN [Device_Tenant] ON [Device].[id] = [Device_Tenant].[DeviceId] AND [Site].[TenantId] = [Device_Tenant].[TenantId]  
+    WHERE [Device_Tenant].[id] IS NULL   
+        AND [Device].[IsActive] = 1  
+        AND [Device].[IsDeleted] = 0;  
+  
+    UPDATE [Device_Tenant]  
+    SET [SiteId] = [Site].[Id]  
+    FROM [Device_Tenant]  
+    INNER JOIN [Device] ON [Device_Tenant].[DeviceId] = [Device].[id]  
+    INNER JOIN [ServiceProvider] ON [Device].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[IsDeleted] = 0 AND [Site].[IsSystemDefault] = 1 AND [Site].[TenantId] = [Device_Tenant].[TenantId]  
+    WHERE [Device].[IsActive] = 1  
+        AND [Device].[IsDeleted] = 0  
+        AND [Device_Tenant].[SiteId] IS NULL;  
+  
+    INSERT INTO [Device_Tenant] ([DeviceId], [TenantId], [AccountNumber], [SiteId], [AccountNumberIntegrationAuthenticationId])  
+    SELECT [Device].[id] AS [DeviceId], [agentSite].[TenantId], [RevCustomer].[RevCustomerId] AS [AccountNumber], [agentSite].[id] AS [SiteId], [RevCustomer].[IntegrationAuthenticationId]  
+    FROM [Device]  
+    INNER JOIN [ServiceProvider] ON [Device].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[IsDeleted] = 0  
+    INNER JOIN [Site] [agentSite] ON [agentSite].[ParentSiteId] = [Site].[Id] AND [agentSite].[IsSystemDefault] = 1  
+    INNER JOIN [Device_Tenant] ON [Device].[id] = [Device_Tenant].[DeviceId] AND [ServiceProvider].[TenantId] = [Device_Tenant].[TenantId] AND [Device_Tenant].[SiteId] = [Site].[id]  
+    LEFT JOIN [RevCustomer] ON [agentSite].[RevCustomerId] = [RevCustomer].[id]  
+    LEFT JOIN [Device_Tenant] [deviceTenant] ON [Device].[id] = [deviceTenant].[DeviceId] AND [agentSite].[TenantId] = [deviceTenant].[TenantId]  
+    WHERE [deviceTenant].[id] IS NULL   
+        AND [Device].[IsActive] = 1  
+        AND [Device].[IsDeleted] = 0;  
+  
+    UPDATE [Device_Tenant]  
+    SET [SiteId] = [agentSite].[Id]  
+    FROM [Device_Tenant]  
+    INNER JOIN [Device] ON [Device_Tenant].[DeviceId] = [Device].[id]  
+    INNER JOIN [ServiceProvider] ON [Device].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[Id] = [Device_Tenant].[SiteId]  
+    INNER JOIN [Site] [agentSite] ON [agentSite].[ParentSiteId] = [Site].[Id] AND [agentSite].[IsSystemDefault] = 1 AND [agentSite].[TenantId] = [Device_Tenant].[TenantId]  
+    WHERE [Device].[IsActive] = 1  
+        AND [Device].[IsDeleted] = 0  
+        AND [Device_Tenant].[SiteId] IS NULL;  
+  
+    INSERT INTO [MobilityDevice_Tenant] ([MobilityDeviceId], [TenantId], [AccountNumber], [SiteId], [AccountNumberIntegrationAuthenticationId])  
+    SELECT [MobilityDevice].[id] AS [MobilityDeviceId], [Site].[TenantId], [RevCustomer].[RevCustomerId] AS [AccountNumber], [Site].[id] AS [SiteId], [RevCustomer].[IntegrationAuthenticationId]  
+    FROM [MobilityDevice]  
+    INNER JOIN [ServiceProvider] ON [MobilityDevice].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[IsDeleted] = 0 AND [Site].[IsSystemDefault] = 1  
+    LEFT JOIN [RevCustomer] ON [Site].[RevCustomerId] = [RevCustomer].[id]  
+    LEFT JOIN [MobilityDevice_Tenant] ON [MobilityDevice].[id] = [MobilityDevice_Tenant].[MobilityDeviceId] AND [Site].[TenantId] = [MobilityDevice_Tenant].[TenantId]  
+    WHERE [MobilityDevice_Tenant].[id] IS NULL   
+        AND [MobilityDevice].[IsActive] = 1  
+        AND [MobilityDevice].[IsDeleted] = 0;  
+  
+    UPDATE [MobilityDevice_Tenant]  
+    SET [SiteId] = [Site].[Id]  
+    FROM [MobilityDevice_Tenant]  
+    INNER JOIN [MobilityDevice] ON [MobilityDevice_Tenant].[MobilityDeviceId] = [MobilityDevice].[id]  
+    INNER JOIN [ServiceProvider] ON [MobilityDevice].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[IsDeleted] = 0 AND [Site].[IsSystemDefault] = 1 AND [Site].[TenantId] = [MobilityDevice_Tenant].[TenantId]  
+    WHERE [MobilityDevice].[IsActive] = 1  
+        AND [MobilityDevice].[IsDeleted] = 0  
+        AND [MobilityDevice_Tenant].[SiteId] IS NULL;  
+  
+    INSERT INTO [MobilityDevice_Tenant] ([MobilityDeviceId], [TenantId], [AccountNumber], [SiteId], [AccountNumberIntegrationAuthenticationId])  
+    SELECT [MobilityDevice].[id] AS [DeviceId], [agentSite].[TenantId], [RevCustomer].[RevCustomerId] AS [AccountNumber], [agentSite].[id] AS [SiteId], [RevCustomer].[IntegrationAuthenticationId]  
+    FROM [MobilityDevice]  
+    INNER JOIN [ServiceProvider] ON [MobilityDevice].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[IsDeleted] = 0  
+    INNER JOIN [Site] [agentSite] ON [agentSite].[ParentSiteId] = [Site].[Id] AND [agentSite].[IsSystemDefault] = 1  
+    INNER JOIN [MobilityDevice_Tenant] ON [MobilityDevice].[id] = [MobilityDevice_Tenant].[MobilityDeviceId] AND [ServiceProvider].[TenantId] = [MobilityDevice_Tenant].[TenantId] AND [MobilityDevice_Tenant].[SiteId] = [Site].[id]  
+    LEFT JOIN [RevCustomer] ON [agentSite].[RevCustomerId] = [RevCustomer].[id]  
+    LEFT JOIN [MobilityDevice_Tenant] [deviceTenant] ON [MobilityDevice].[id] = [deviceTenant].[MobilityDeviceId] AND [agentSite].[TenantId] = [deviceTenant].[TenantId]  
+    WHERE [deviceTenant].[id] IS NULL   
+        AND [MobilityDevice].[IsActive] = 1  
+        AND [MobilityDevice].[IsDeleted] = 0;  
+  
+    UPDATE [MobilityDevice_Tenant]  
+    SET [SiteId] = [agentSite].[Id]  
+    FROM [MobilityDevice_Tenant]  
+    INNER JOIN [MobilityDevice] ON [MobilityDevice_Tenant].[MobilityDeviceId] = [MobilityDevice].[id]  
+    INNER JOIN [ServiceProvider] ON [MobilityDevice].[ServiceProviderId] = [ServiceProvider].[Id]  
+    INNER JOIN [Site] ON [ServiceProvider].[TenantId] = [Site].[TenantId] AND [Site].[Id] = [MobilityDevice_Tenant].[SiteId]  
+    INNER JOIN [Site] [agentSite] ON [agentSite].[ParentSiteId] = [Site].[Id] AND [agentSite].[IsSystemDefault] = 1 AND [agentSite].[TenantId] = [MobilityDevice_Tenant].[TenantId]  
+    WHERE [MobilityDevice].[IsActive] = 1  
+        AND [MobilityDevice].[IsDeleted] = 0  
+        AND [MobilityDevice_Tenant].[SiteId] IS NULL;
+
+usp_Update_RevServiceProduct_FromStaging
+
+-- =============================================  
+-- Author:  Miyuki Marriott  
+-- Create date: 2019-07-09  
+--  
+-- Parameter: N/A  
+--  
+-- Description: Updates [RevServiceProduct] values based on the values in the staging table ([dbo].[RevServiceProductStaging]).  
+--  
+-- =============================================  
+CREATE PROCEDURE [dbo].[usp_Update_RevServiceProduct_FromStaging]  
+  @IntegrationAuthenticationId INT  
+AS  
+BEGIN  
+ SET NOCOUNT ON;  
+  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevServiceProductStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(100) = 'RevServiceProduct_Insert_AltaworxRevAWSServiceProductSync_Lambda_Service';  
+    MERGE [dbo].[RevServiceProduct] AS [TARGET]  
+    USING (  
+         SELECT  
+            [ServiceProductId],  
+      [CustomerId],  
+      [ProductId],  
+      [PackageId],  
+      [ServiceId],  
+      [Description],  
+      [Code1],  
+      [Code2],  
+      [Rate],  
+      [BilledThroughDate],  
+      [CanceledDate],  
+      [Status],  
+      [StatusDate],  
+      [StatusUserId],  
+      [ActivatedDate],  
+      [Cost],  
+      [WholesaleDescription],  
+      [FreeStartDate],  
+      [FreeEndDate],  
+      [Quantity],  
+      [ContractStartDate],  
+      [ContractEndDate],  
+      [CreatedDate],  
+      [TaxIncluded],  
+      [GroupOnBill],  
+      [Itemized],  
+            [IntegrationAuthenticationId]  
+         FROM  
+         (  
+            SELECT  
+                [RevServiceProductStaging].[ServiceProductId],  
+          [RevServiceProductStaging].[CustomerId],  
+          [RevServiceProductStaging].[ProductId],  
+          [RevServiceProductStaging].[PackageId],  
+          [RevServiceProductStaging].[ServiceId],  
+          [RevServiceProductStaging].[Description],  
+          [RevServiceProductStaging].[Code1],  
+          [RevServiceProductStaging].[Code2],  
+          [RevServiceProductStaging].[Rate],  
+          [RevServiceProductStaging].[BilledThroughDate],  
+          [RevServiceProductStaging].[CanceledDate],  
+          [RevServiceProductStaging].[Status],  
+          [RevServiceProductStaging].[StatusDate],  
+          [RevServiceProductStaging].[StatusUserId],  
+          [RevServiceProductStaging].[ActivatedDate],  
+          [RevServiceProductStaging].[Cost],  
+          [RevServiceProductStaging].[WholesaleDescription],  
+          [RevServiceProductStaging].[FreeStartDate],  
+          [RevServiceProductStaging].[FreeEndDate],  
+          [RevServiceProductStaging].[Quantity],  
+          [RevServiceProductStaging].[ContractStartDate],  
+          [RevServiceProductStaging].[ContractEndDate],  
+          [RevServiceProductStaging].[CreatedDate],  
+          [RevServiceProductStaging].[TaxIncluded],  
+          [RevServiceProductStaging].[GroupOnBill],  
+          [RevServiceProductStaging].[Itemized],  
+                [RevServiceProductStaging].[IntegrationAuthenticationId],  
+                ROW_NUMBER() OVER(PARTITION BY [ServiceProductId] ORDER BY [RevServiceProductStaging].[RevServiceProductStagingId] DESC) AS [RecordNumber]  
+            FROM [dbo].[RevServiceProductStaging]  
+         ) [RevServiceProductStg]  
+         WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [SOURCE].[ServiceProductId] = [TARGET].[ServiceProductId] AND [SOURCE].[IntegrationAuthenticationId] = [TARGET].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT (  
+   [ServiceProductId],  
+   [CustomerId],  
+   [ProductId],  
+   [PackageId],  
+   [ServiceId],  
+   [Description],  
+   [Code1],  
+   [Code2],  
+   [Rate],  
+   [BilledThroughDate],  
+   [CanceledDate],  
+   [Status],  
+   [StatusDate],  
+   [StatusUserId],  
+   [ActivatedDate],  
+   [Cost],  
+   [WholesaleDescription],  
+   [FreeStartDate],  
+   [FreeEndDate],  
+   [Quantity],  
+   [ContractStartDate],  
+   [ContractEndDate],  
+   [CreatedDate],  
+   [TaxIncluded],  
+   [GroupOnBill],  
+   [Itemized],  
+   [CreatedBy],  
+   [ModifiedBy],  
+   [ModifiedDate],  
+   [DeletedBy],  
+   [DeletedDate],  
+   [IsDeleted],  
+   [IsActive],  
+   [IntegrationAuthenticationId]  
+  )  
+        VALUES (  
+            [SOURCE].[ServiceProductId],  
+      [SOURCE].[CustomerId],  
+      [SOURCE].[ProductId],  
+      [SOURCE].[PackageId],  
+      [SOURCE].[ServiceId],  
+      [SOURCE].[Description],  
+      [SOURCE].[Code1],  
+      [SOURCE].[Code2],  
+      [SOURCE].[Rate],  
+      [SOURCE].[BilledThroughDate],  
+      [SOURCE].[CanceledDate],  
+      [SOURCE].[Status],  
+      [SOURCE].[StatusDate],  
+      [SOURCE].[StatusUserId],  
+      [SOURCE].[ActivatedDate],  
+      [SOURCE].[Cost],  
+      [SOURCE].[WholesaleDescription],  
+      [SOURCE].[FreeStartDate],  
+      [SOURCE].[FreeEndDate],  
+      [SOURCE].[Quantity],  
+      [SOURCE].[ContractStartDate],  
+      [SOURCE].[ContractEndDate],  
+      [SOURCE].[CreatedDate],  
+      [SOURCE].[TaxIncluded],  
+      [SOURCE].[GroupOnBill],  
+      [SOURCE].[Itemized],  
+      @processedBy,  
+      NULL,  
+      NULL,  
+      NULL,  
+      NULL,  
+      0,  
+      1,  
+      [SOURCE].[IntegrationAuthenticationId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED AND (  
+                        TARGET.[CustomerId] <> SOURCE.[CustomerId]  
+                        OR TARGET.[ProductId] <> SOURCE.[ProductId]   
+                        OR TARGET.[PackageId] <> SOURCE.[PackageId]   
+                        OR TARGET.[ServiceId] <> SOURCE.[ServiceId]  
+                        OR TARGET.[Description] <> SOURCE.[Description]  
+                        OR TARGET.[Rate] <> SOURCE.[Rate]  
+      OR TARGET.[CanceledDate] <> SOURCE.[CanceledDate]  
+      OR TARGET.[Status] <> SOURCE.[Status]  
+      OR TARGET.[StatusDate] <> SOURCE.[StatusDate]  
+      OR TARGET.[BilledThroughDate] <> SOURCE.[BilledThroughDate]  
+      OR TARGET.[StatusUserId] <> SOURCE.[StatusUserId]  
+      OR TARGET.[ActivatedDate] <> SOURCE.[ActivatedDate]  
+      OR TARGET.[Cost] <> SOURCE.[Cost]  
+      OR TARGET.[Quantity] <> SOURCE.[Quantity]  
+      OR TARGET.[ContractStartDate] <> SOURCE.[ContractStartDate]  
+      OR TARGET.[ContractEndDate] <> SOURCE.[ContractEndDate]  
+      OR TARGET.[ActivatedDate] <> SOURCE.[ActivatedDate]  
+      OR (TARGET.IsDeleted = 1)  
+      OR (TARGET.IsActive = 0)) THEN  
+        UPDATE  
+     SET  
+      [TARGET].[CustomerId] = [SOURCE].[CustomerId],  
+      [TARGET].[ProductId] = [SOURCE].[ProductId],  
+      [TARGET].[PackageId] = [SOURCE].[PackageId],  
+      [TARGET].[ServiceId] = [SOURCE].[ServiceId],  
+      [TARGET].[Description]= [SOURCE].[Description],  
+      [TARGET].[Code1] = [SOURCE].[Code1],  
+      [TARGET].[Code2]= [SOURCE].[Code2],  
+      [TARGET].[Rate] = [SOURCE].[Rate],  
+      [TARGET].[BilledThroughDate]= [SOURCE].[BilledThroughDate],  
+      [TARGET].[CanceledDate] = [SOURCE].[CanceledDate],  
+      [TARGET].[Status] = [SOURCE].[Status],  
+      [TARGET].[StatusDate]= [SOURCE].[StatusDate],  
+      [TARGET].[StatusUserId] = [SOURCE].[StatusUserId],  
+      [TARGET].[ActivatedDate] = [SOURCE].[ActivatedDate],  
+      [TARGET].[Cost] = [SOURCE].[Cost],  
+      [TARGET].[WholesaleDescription] = [SOURCE].[WholesaleDescription],  
+      [TARGET].[FreeStartDate] = [SOURCE].[FreeStartDate],  
+      [TARGET].[FreeEndDate] = [SOURCE].[FreeEndDate],  
+      [TARGET].[Quantity] = [SOURCE].[Quantity],  
+      [TARGET].[ContractStartDate] = [SOURCE].[ContractStartDate],  
+      [TARGET].[ContractEndDate] = [SOURCE].[ContractEndDate],  
+      [TARGET].[CreatedDate] = [SOURCE].[CreatedDate],  
+      [TARGET].[TaxIncluded] = [SOURCE].[TaxIncluded],  
+      [TARGET].[GroupOnBill] = [SOURCE].[GroupOnBill],  
+      [TARGET].[Itemized] = [SOURCE].[Itemized],  
+      [TARGET].[ModifiedBy] = @processedBy,  
+      [TARGET].[ModifiedDate] = GETUTCDATE(),  
+            [TARGET].[IsDeleted] = 0,  
+            [TARGET].[IsActive] = 1;   
+END;
+
+usp_Update_RevInventoryType_FromStaging
+
+CREATE PROCEDURE [dbo].[usp_Update_RevInventoryType_FromStaging]  
+    @IntegrationAuthenticationId INT  
+AS  
+BEGIN  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevInventoryTypeStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    MERGE [dbo].[RevInventoryType] AS TARGET  
+    USING [dbo].[RevInventoryTypeStaging] AS SOURCE  
+        ON(TARGET.[InventoryTypeId] = SOURCE.[InventoryTypeId] AND  
+           TARGET.[IntegrationAuthenticationId] = SOURCE.[IntegrationAuthenticationId])  
+  
+    WHEN MATCHED AND (TARGET.[Category] <> SOURCE.[Category]  
+                        OR TARGET.[Identifier] <> SOURCE.[Identifier]   
+                        OR TARGET.[Name] <> SOURCE.[Name]   
+                        OR TARGET.[RequiresProduct] <> SOURCE.[RequiresProduct]  
+                        OR (TARGET.[Description] <> SOURCE.[Description] OR (TARGET.[Description] IS NULL AND SOURCE.[Description] IS NOT NULL) OR (TARGET.[Description] IS NOT NULL AND SOURCE.[Description] IS NULL))  
+                        OR TARGET.[Status] <> SOURCE.[Status]  
+                        OR TARGET.[Format] <> SOURCE.[Format]  
+                        OR TARGET.[Ratable] <> SOURCE.[Ratable]  
+                        OR TARGET.IsDeleted = 1)  
+        THEN   
+            UPDATE SET TARGET.[Category] = SOURCE.[Category],   
+                        TARGET.[Identifier] = SOURCE.[Identifier],  
+                        TARGET.[Name] = SOURCE.[Name],  
+                        TARGET.[RequiresProduct] = SOURCE.[RequiresProduct],  
+                        TARGET.[Description] = SOURCE.[Description],  
+                        TARGET.[Status] = SOURCE.[Status],  
+                        TARGET.[Format] = SOURCE.[Format],  
+                        TARGET.[Ratable] = SOURCE.[Ratable],  
+                        TARGET.[ModifiedBy] = 'RevInventoryType_AltaworxRevAWSServiceProductSync_Lambda_Service',  
+                        TARGET.[ModifiedDate] = GETUTCDATE(),  
+                        TARGET.[IntegrationAuthenticationId] = SOURCE.[IntegrationAuthenticationId],  
+                        TARGET.[IsDeleted] = 0,  
+      TARGET.[IsActive] = 1,  
+      TARGET.[DeletedBy] = NULL,  
+      TARGET.[DeletedDate] = NULL  
+  
+    WHEN NOT MATCHED BY TARGET  
+        THEN   
+            INSERT(  
+                [InventoryTypeId],   
+                [Category],  
+                [Identifier],   
+                [Name],  
+                [RequiresProduct],  
+                [Description],  
+                [Status],  
+                [Format],  
+                [Ratable],  
+                [CreatedBy],   
+                [CreatedDate],  
+                [IsActive],  
+                [IsDeleted],  
+                [IntegrationAuthenticationId])   
+            VALUES(  
+                SOURCE.[InventoryTypeId],   
+                SOURCE.[Category],  
+                SOURCE.[Identifier],  
+                SOURCE.[Name],  
+                SOURCE.[RequiresProduct],  
+                SOURCE.[Description],  
+                SOURCE.[Status],  
+                SOURCE.[Format],  
+                SOURCE.[Ratable],  
+                'RevInventoryType_AltaworxRevAWSServiceProductSync_Lambda_Service',   
+                GETUTCDATE(),  
+                1,  
+                0,  
+                SOURCE.[IntegrationAuthenticationId])  
+  
+    WHEN NOT MATCHED BY SOURCE AND TARGET.IntegrationAuthenticationId = @IntegrationAuthenticationId  
+        THEN UPDATE SET TARGET.IsActive = 0,  
+                        TARGET.IsDeleted = 1,  
+                        TARGET.DeletedBy = 'RevInventoryType_AltaworxRevAWSServiceProductSync_Lambda_Service',  
+                        TARGET.DeletedDate = GETUTCDATE();  
+END
+
+usp_Update_RevInventoryItem_FromStaging
+
+CREATE PROCEDURE [dbo].[usp_Update_RevInventoryItem_FromStaging]  
+    @IntegrationAuthenticationId INT  
+AS  
+BEGIN  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevInventoryItemStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    MERGE [dbo].[RevInventoryItem] AS TARGET  
+    USING   
+    (  
+        SELECT InventoryItemId,  
+   [InventoryTypeId],  
+   [CustomerId],  
+   [Identifier],  
+   [RevCreatedBy],  
+   [RevCreatedDate],  
+   [Status],  
+   [InventoryItemUnavailableReasonId],  
+   [IntegrationAuthenticationId],  
+   [AmopRevInventoryTypeId],  
+   [RevCustomerId]  
+        FROM  
+        (  
+            SELECT   
+                RIISTG.[InventoryItemId]  
+                ,RIISTG.[InventoryTypeId]  
+                ,RIISTG.[CustomerId]  
+                ,RIISTG.[Identifier]  
+                ,RIISTG.[RevCreatedBy]  
+                ,RIISTG.[RevCreatedDate]  
+                ,RIISTG.[Status]  
+                ,RIISTG.[InventoryItemUnavailableReasonId]  
+                ,RIISTG.[IntegrationAuthenticationId]  
+                ,RIT.id AS [AmopRevInventoryTypeId]  
+                ,RC.id AS[RevCustomerId]  
+                ,ROW_NUMBER() OVER(PARTITION BY RIISTG.[InventoryItemId], RC.RevCustomerId ORDER BY RC.CreatedDate DESC) AS RowNum  
+            FROM [dbo].[RevInventoryItemStaging] RIISTG  
+            INNER JOIN [dbo].[RevInventoryType] RIT WITH(NOLOCK) ON RIT.[InventoryTypeId] = RIISTG.[InventoryTypeId] AND RIISTG.IntegrationAuthenticationId = RIT.IntegrationAuthenticationId  
+            LEFT JOIN [dbo].[RevCustomer] RC WITH (NOLOCK) ON RC.[RevCustomerId] = RIISTG.[CustomerId] AND RIISTG.IntegrationAuthenticationId = RIT.IntegrationAuthenticationId  
+            WHERE RC.IsActive = 1 AND RC.IsDeleted = 0 AND RC.[Status] <> 'CLOSED'  
+    AND RIT.IsActive = 1 AND RIT.IsDeleted = 0  
+        ) AS A  
+        WHERE RowNum = 1  
+    )AS SOURCE  
+        ON(TARGET.[InventoryItemId] = SOURCE.[InventoryItemId] AND  
+           TARGET.[IntegrationAuthenticationId] = SOURCE.[IntegrationAuthenticationId])  
+    WHEN MATCHED AND (  
+                        TARGET.[AmopRevInventoryTypeId] <> SOURCE.[AmopRevInventoryTypeId]  
+                        OR TARGET.[Identifier] <> SOURCE.[Identifier]   
+                        OR TARGET.[CustomerId] <> SOURCE.[CustomerId]   
+                        OR TARGET.[RevCreatedBy] <> SOURCE.[RevCreatedBy]  
+                        OR TARGET.[RevCreatedDate] <> SOURCE.[RevCreatedDate]  
+                        OR TARGET.[Status] <> SOURCE.[Status]  
+                        OR (TARGET.[InventoryItemUnavailableReasonId] <> SOURCE.[InventoryItemUnavailableReasonId] OR (TARGET.[InventoryItemUnavailableReasonId] IS NULL AND SOURCE.[InventoryItemUnavailableReasonId] IS NOT NULL) OR (TARGET.[InventoryItemUn
+availableReasonId] IS NOT NULL AND SOURCE.[InventoryItemUnavailableReasonId] IS NULL))  
+                        OR (TARGET.[RevCustomerId] <> SOURCE.[RevCustomerId] OR (TARGET.[RevCustomerId] IS NULL AND SOURCE.[RevCustomerId] IS NOT NULL) OR (TARGET.[RevCustomerId] IS NOT NULL AND SOURCE.[RevCustomerId] IS NULL)  
+      OR (TARGET.IsDeleted = 1)  
+      OR (TARGET.IsActive = 0))  
+                    )  
+        THEN UPDATE SET TARGET.[AmopRevInventoryTypeId] = SOURCE.[AmopRevInventoryTypeId],   
+                        TARGET.[Identifier] = SOURCE.[Identifier],  
+                        TARGET.[CustomerId] = SOURCE.[CustomerId],  
+                        TARGET.[RevCreatedBy] = SOURCE.[RevCreatedBy],  
+                        TARGET.[RevCreatedDate] = SOURCE.[RevCreatedDate],  
+                        TARGET.[Status] = SOURCE.[Status],  
+                        TARGET.[InventoryItemUnavailableReasonId] = SOURCE.[InventoryItemUnavailableReasonId],  
+                        TARGET.[ModifiedBy] = 'RevInventoryItem_AltaworxRevAWSServiceProductSync_Lambda_Service',  
+                        TARGET.[ModifiedDate] = GETUTCDATE(),  
+                        TARGET.[IntegrationAuthenticationId] = SOURCE.[IntegrationAuthenticationId],  
+                        TARGET.[RevCustomerId] = SOURCE.[RevCustomerId],  
+      TARGET.[IsDeleted] = 0,  
+      TARGET.[IsActive] = 1,  
+      TARGET.[DeletedDate] = NULL,  
+      TARGET.[DeletedBy] = NULL  
+  
+    WHEN NOT MATCHED BY TARGET  
+        THEN   
+            INSERT(  
+                [AmopRevInventoryTypeId]  
+                ,[InventoryItemId]  
+                ,[CustomerId]  
+                ,[Identifier]  
+                ,[RevCreatedBy]  
+                ,[RevCreatedDate]  
+                ,[Status]  
+                ,[InventoryItemUnavailableReasonId]  
+                ,[CreatedBy]   
+                ,[CreatedDate]  
+                ,[IsActive]  
+                ,[IsDeleted]  
+                ,[IntegrationAuthenticationId]  
+                ,[RevCustomerId])   
+            VALUES(  
+                SOURCE.[AmopRevInventoryTypeId],   
+                SOURCE.[InventoryItemId],  
+                SOURCE.[CustomerId],  
+                SOURCE.[Identifier],  
+                SOURCE.[RevCreatedBy],  
+                SOURCE.[RevCreatedDate],  
+                SOURCE.[Status],  
+                SOURCE.[InventoryItemUnavailableReasonId],  
+                'RevInventoryItem_AltaworxRevAWSServiceProductSync_Lambda_Service',   
+                GETUTCDATE(),  
+                1,  
+                0,  
+                SOURCE.[IntegrationAuthenticationId],  
+                SOURCE.[RevCustomerId])  
+  
+    WHEN NOT MATCHED BY SOURCE AND TARGET.IntegrationAuthenticationId = @IntegrationAuthenticationId  
+        THEN UPDATE SET TARGET.IsActive = 0,  
+                        TARGET.IsDeleted = 1,  
+                        TARGET.DeletedBy = 'RevInventoryItem_AltaworxRevAWSServiceProductSync_Lambda_Service',  
+                        TARGET.DeletedDate = GETUTCDATE();  
+  
+ MERGE [dbo].[RevInventoryItem] AS TARGET  
+ USING  
+ (  
+  SELECT Id,  
+   BandwidthTelephoneNumberId  
+  FROM  
+  (  
+   SELECT   
+    Id,  
+    BandwidthTelephoneNumberId,  
+    ROW_NUMBER() OVER(PARTITION BY IntegrationAuthenticationId, BandwidthTelephoneNumberId ORDER BY RevCreatedDate DESC) AS RecordNumber  
+   FROM  
+    (  
+    SELECT TOP 1 rii.id,  
+     btn.id AS BandwidthTelephoneNumberId,  
+     rii.IntegrationAuthenticationId,  
+     rii.[Status],  
+     CAST(ISNULL(rii.RevCreatedDate, '9999-12-31T00:00:00') AS DATETIME) AS RevCreatedDate  
+    FROM BandwidthTelephoneNumber btn  
+    INNER JOIN RevInventoryItem rii ON rii.[Identifier] = btn.[FullNumber]  
+    WHERE btn.IsActive = 1 AND btn.IsDeleted = 0 AND rii.IsActive = 1 AND rii.IsDeleted = 0 AND rii.IntegrationAuthenticationId = @IntegrationAuthenticationId  
+   ) dt  
+  ) dt1  
+  WHERE RecordNumber = 1  
+ ) AS SOURCE ON TARGET.Id = SOURCE.Id  
+ WHEN MATCHED THEN  
+  UPDATE  
+  SET TARGET.BandwidthTelephoneNumberId = SOURCE.BandwidthTelephoneNumberId  
+ WHEN NOT MATCHED BY SOURCE THEN  
+  UPDATE  
+  SET TARGET.BandwidthTelephoneNumberId = NULL;  
+END
+
+usp_Update_RevUsagePlanGroup_FromStaging
+
+CREATE PROCEDURE [dbo].[usp_Update_RevUsagePlanGroup_FromStaging]  
+    @IntegrationAuthenticationId INT  
+AS  
+BEGIN  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevUsagePlanGroupStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevUsagePlanGroup_FromStaging';  
+    MERGE [dbo].[RevUsagePlanGroup] AS [TARGET]  
+    USING (  
+  SELECT [UsagePlanGroupId], [Description], [LongDescription],   
+   [RevActive], [RevCreatedBy], [RevCreatedDate], [IntegrationAuthenticationId]  
+  FROM [dbo].[RevUsagePlanGroupStaging]  
+  WHERE [IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+ ) AS [SOURCE]  
+        ON([TARGET].[UsagePlanGroupId] = [SOURCE].[UsagePlanGroupId] AND  
+            [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId])  
+  
+    WHEN MATCHED AND (  
+                        [TARGET].[RevActive] <> [SOURCE].[RevActive]   
+                        OR [TARGET].[RevCreatedBy] <> [SOURCE].[RevCreatedBy]   
+                        OR [TARGET].[RevCreatedDate] <> [SOURCE].[RevCreatedDate]  
+                        OR ([TARGET].[Description] <> [SOURCE].[Description] OR ([TARGET].[Description] IS NULL AND [SOURCE].[Description] IS NOT NULL) OR ([TARGET].[Description] IS NOT NULL AND [SOURCE].[Description] IS NULL))  
+                        OR ([TARGET].[LongDescription] <> [SOURCE].[LongDescription] OR ([TARGET].[LongDescription] IS NULL AND [SOURCE].[LongDescription] IS NOT NULL) OR ([TARGET].[LongDescription] IS NOT NULL AND [SOURCE].[LongDescription] IS NULL))  
+                     )  
+        THEN   
+            UPDATE SET [TARGET].[RevActive] = [SOURCE].[RevActive],   
+                        [TARGET].[RevCreatedBy] = [SOURCE].[RevCreatedBy],  
+                        [TARGET].[RevCreatedDate] = [SOURCE].[RevCreatedDate],  
+                        [TARGET].[Description] = [SOURCE].[Description],  
+                        [TARGET].[LongDescription] = [SOURCE].[LongDescription],  
+                        [TARGET].[ModifiedBy] = @processedBy,  
+                        [TARGET].[ModifiedDate] = GETUTCDATE(),  
+                        [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+  
+    WHEN NOT MATCHED BY TARGET  
+        THEN   
+            INSERT(  
+                [UsagePlanGroupId],   
+                [Description],  
+                [LongDescription],   
+                [RevActive],  
+                [RevCreatedBy],  
+                [RevCreatedDate],  
+                [CreatedBy],   
+                [CreatedDate],  
+                [IsActive],  
+                [IsDeleted],  
+                [IntegrationAuthenticationId])   
+            VALUES(  
+                [SOURCE].[UsagePlanGroupId],   
+                [SOURCE].[Description],  
+                [SOURCE].[LongDescription],  
+                [SOURCE].[RevActive],  
+                [SOURCE].[RevCreatedBy],  
+                [SOURCE].[RevCreatedDate],  
+                @processedBy,   
+                GETUTCDATE(),  
+                1,  
+                0,  
+                [SOURCE].[IntegrationAuthenticationId])  
+  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId  
+        THEN UPDATE SET [TARGET].[IsActive] = 0,  
+                        [TARGET].[IsDeleted] = 1,  
+                        [TARGET].[DeletedBy] = @processedBy,  
+                        [TARGET].[DeletedDate] = GETUTCDATE();  
+END;
+
+usp_Update_RevAgent
+
+CREATE PROCEDURE [dbo].[usp_Update_RevAgent]  
+    @IntegrationAuthenticationId INT  
+AS  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevAgent';  
+    MERGE [dbo].[RevAgent] AS [TARGET]  
+    USING  
+    (  
+        SELECT  
+            [RevAgentId]  
+            ,[AgentName]  
+            ,[ParentAgentId]  
+            ,[Status]  
+   ,[IntegrationAuthenticationId]  
+  FROM [dbo].[RevAgentStaging]  
+    ) AS [SOURCE]  
+    ON [TARGET].[RevAgentId] = [SOURCE].[RevAgentId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT(  
+            [RevAgentId]  
+            ,[AgentName]  
+            ,[CreatedBy]  
+            ,[CreatedDate]  
+            ,[ParentAgentId]  
+            ,[Status]  
+   ,[IntegrationAuthenticationId]  
+        )  
+        VALUES(  
+            [SOURCE].[RevAgentId]  
+            ,[SOURCE].[AgentName]  
+            ,@processedBy  
+            ,GETUTCDATE()  
+            ,[SOURCE].[ParentAgentId]  
+            ,[SOURCE].[Status]  
+   ,[SOURCE].[IntegrationAuthenticationId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET [TARGET].[AgentName] = [SOURCE].[AgentName]  
+            ,[TARGET].[ModifiedBy] = @processedBy  
+            ,[TARGET].[ModifiedDate] = GETUTCDATE()  
+            ,[TARGET].[Status] = [SOURCE].[Status]  
+            ,[TARGET].[ParentAgentId] = [SOURCE].[ParentAgentId]  
+            ,[TARGET].[IsDeleted] = 0  
+            ,[TARGET].[IsActive] = 1;
+
+usp_Update_RevPackage_FromStaging
+
+-- =============================================  
+-- Author:  Do Duc Hoai  
+-- Created date: 2023-05-30  
+--  
+-- Parameter: N/A  
+--  
+-- Description: Updates [RevPackage] values based on the values in the staging table ([dbo].[RevPackageStaging]).  
+--  
+-- =============================================  
+CREATE PROCEDURE [dbo].[usp_Update_RevPackage_FromStaging]  
+    @IntegrationAuthenticationId INT  
+AS  
+BEGIN  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevPackageStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevPackage_FromStaging';  
+    MERGE [dbo].[RevPackage] AS [TARGET]  
+    USING  
+    (  
+        SELECT [PackageId],  
+   [ProviderId],  
+   [CurrencyCode],  
+   [Description],  
+   [DescriptionOnBill],  
+   [LongDescription],  
+   [CreatedDate],  
+   [CreatedBy],  
+   [Active],  
+   [UsagePlanGroupId],  
+   [ServiceTypeId],  
+   [PackageCategoryId],  
+   [ExemptFromSpiffCommission],  
+   [RestrictClassFlag],  
+   [Class],  
+   [RestrictBillProfileFlag],  
+   [BillProfileId],  
+   [IntegrationAuthenticationId],  
+   [RevProviderId]  
+  FROM  
+  (  
+   SELECT   
+                [RevPackageStaging].[PackageId],  
+                [RevPackageStaging].[ProviderId],  
+                [RevPackageStaging].[CurrencyCode],  
+                [RevPackageStaging].[Description],  
+                [RevPackageStaging].[DescriptionOnBill],  
+                [RevPackageStaging].[LongDescription],  
+                [RevPackageStaging].[CreatedDate],  
+                [RevPackageStaging].[CreatedBy],  
+                [RevPackageStaging].[Active],  
+                [RevPackageStaging].[UsagePlanGroupId],  
+                [RevPackageStaging].[ServiceTypeId],  
+                [RevPackageStaging].[PackageCategoryId],  
+                [RevPackageStaging].[ExemptFromSpiffCommission],  
+                [RevPackageStaging].[RestrictClassFlag],  
+                [RevPackageStaging].[Class],  
+                [RevPackageStaging].[RestrictBillProfileFlag],  
+                [RevPackageStaging].[BillProfileId],  
+                [RevPackageStaging].[IntegrationAuthenticationId],  
+                [RevProvider].[id] AS [RevProviderId],  
+                ROW_NUMBER() OVER(PARTITION BY [RevPackageStaging].[IntegrationAuthenticationId], [RevPackageStaging].[PackageId] ORDER BY [RevPackageStaging].[CreatedDate] DESC) AS [RecordNumber]  
+   FROM [RevPackageStaging]  
+   LEFT JOIN [dbo].[RevProvider] ON [RevPackageStaging].[ProviderId] = [RevProvider].[ProviderId] AND [RevPackageStaging].[IntegrationAuthenticationId] = [RevProvider].[IntegrationAuthenticationId]  
+  ) [RevPackageStg]  
+  WHERE RecordNumber = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[PackageId] = [SOURCE].[PackageId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT (  
+            [PackageId],  
+            [ProviderId],  
+            [CurrencyCode],  
+            [Description],  
+            [DescriptionOnBill],  
+            [LongDescription],  
+            [CreatedDate],  
+            [CreatedBy],  
+            [UsagePlanGroupId],  
+            [ServiceTypeId],  
+            [PackageCategoryId],  
+            [ExemptFromSpiffCommission],  
+            [RestrictClassFlag],  
+            [Class],  
+            [RestrictBillProfileFlag],  
+            [BillProfileId],  
+            [ModifiedBy],  
+            [ModifiedDate],  
+            [DeletedBy],  
+            [DeletedDate],  
+            [IsDeleted],  
+            [IsActive],  
+            [IntegrationAuthenticationId],  
+            [RevProviderId]  
+        )  
+        VALUES(  
+            [SOURCE].[PackageId]  
+            ,[SOURCE].[ProviderId]  
+            ,[SOURCE].[CurrencyCode]  
+            ,[SOURCE].[Description]  
+            ,[SOURCE].[DescriptionOnBill]  
+            ,[SOURCE].[LongDescription]  
+            ,[SOURCE].[CreatedDate]  
+            ,ISNULL(CAST([SOURCE].[CreatedBy] AS nvarchar(50)), @processedBy)  
+            ,[SOURCE].[UsagePlanGroupId]  
+            ,[SOURCE].[ServiceTypeId]  
+            ,[SOURCE].[PackageCategoryId]  
+            ,[SOURCE].[ExemptFromSpiffCommission]  
+            ,[SOURCE].[RestrictClassFlag]  
+            ,[SOURCE].[Class]  
+            ,[SOURCE].[RestrictBillProfileFlag]  
+            ,[SOURCE].[BillProfileId]  
+            ,NULL  
+            ,NULL  
+            ,NULL  
+            ,NULL  
+            ,CASE WHEN [SOURCE].[Active] IS NULL OR [SOURCE].[Active] = 0 THEN 1 ELSE 0 END  
+            ,ISNULL([SOURCE].[Active], 0)  
+            ,[SOURCE].[IntegrationAuthenticationId]  
+            ,[SOURCE].[RevProviderId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET [TARGET].[ProviderId] = [SOURCE].[ProviderId],  
+            [TARGET].[CurrencyCode] = [SOURCE].[CurrencyCode],  
+            [TARGET].[Description] = [SOURCE].[Description],  
+            [TARGET].[DescriptionOnBill] = [SOURCE].[DescriptionOnBill],  
+            [TARGET].[LongDescription] = [SOURCE].[LongDescription],  
+            [TARGET].[CreatedDate] = [SOURCE].[CreatedDate],  
+            [TARGET].[CreatedBy] = ISNULL(CAST([SOURCE].[CreatedBy] AS nvarchar(50)), @processedBy),  
+            [TARGET].[UsagePlanGroupId] = [SOURCE].[UsagePlanGroupId],  
+            [TARGET].[ServiceTypeId] = [SOURCE].[ServiceTypeId],  
+            [TARGET].[PackageCategoryId] = [SOURCE].[PackageCategoryId],  
+            [TARGET].[ExemptFromSpiffCommission] = [SOURCE].[ExemptFromSpiffCommission],  
+            [TARGET].[RestrictClassFlag] = [SOURCE].[RestrictClassFlag],  
+            [TARGET].[Class] = [SOURCE].[Class],  
+            [TARGET].[RestrictBillProfileFlag] = [SOURCE].[RestrictBillProfileFlag],  
+            [TARGET].[BillProfileId] = [SOURCE].[BillProfileId],  
+            [TARGET].[ModifiedBy] = @processedBy,  
+            [TARGET].[ModifiedDate] = GETUTCDATE(),  
+            [TARGET].[IsDeleted] =   
+                CASE   
+                    WHEN [SOURCE].[Active] IS NULL OR [SOURCE].[Active] = 0 THEN 1  
+                    ELSE 0   
+                END,  
+            [TARGET].[IsActive] = ISNULL([SOURCE].[Active], 0),  
+            [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId],  
+            [TARGET].[RevProviderId] = [SOURCE].[RevProviderId];  
+    END;
+
+usp_Update_RevPackageProduct_FromStaging
+
+-- =============================================  
+-- Author:  Do Duc Hoai  
+-- Created date: 2023-05-30  
+--  
+-- Parameter: N/A  
+--  
+-- Description: Updates [RevPackageProduct] values based on the values in the staging table ([dbo].[RevPackageProductStaging]).  
+--  
+-- =============================================  
+CREATE PROCEDURE [dbo].[usp_Update_RevPackageProduct_FromStaging]  
+    @IntegrationAuthenticationId INT  
+AS  
+BEGIN  
+    -- IF Staging table is empty, then exit  
+    IF NOT EXISTS (SELECT 1 FROM [RevPackageProductStaging] WHERE IntegrationAuthenticationId = @IntegrationAuthenticationId)  
+    BEGIN  
+        RETURN;  
+    END  
+  
+    DECLARE @processedBy NVARCHAR(50) = 'usp_Update_RevPackageProduct_FromStaging';  
+    MERGE [dbo].[RevPackageProduct] AS [TARGET]  
+    USING  
+    (  
+        SELECT [PackageProductId],  
+   [ProductId],  
+   [PackageId],  
+   [Description],  
+   [Code1],  
+   [Code2],  
+   [Rate],  
+   [Cost],  
+   [BuyRate],  
+   [Quantity],  
+   [TaxIncluded],  
+   [GroupOnBill],  
+   [Itemized],  
+   [Credit],  
+   [IntegrationAuthenticationId],  
+   [RevProductId],  
+   [RevPackageId]  
+  FROM  
+  (  
+   SELECT   
+                [RevPackageProductStaging].[PackageProductId],  
+                [RevPackageProductStaging].[ProductId],  
+                [RevPackageProductStaging].[PackageId],  
+                [RevPackageProductStaging].[Description],  
+                [RevPackageProductStaging].[Code1],  
+                [RevPackageProductStaging].[Code2],  
+                [RevPackageProductStaging].[Rate],  
+                [RevPackageProductStaging].[Cost],  
+                [RevPackageProductStaging].[BuyRate],  
+                [RevPackageProductStaging].[Quantity],  
+                [RevPackageProductStaging].[TaxIncluded],  
+                [RevPackageProductStaging].[GroupOnBill],  
+                [RevPackageProductStaging].[Itemized],  
+                [RevPackageProductStaging].[Credit],  
+                [RevPackageProductStaging].[IntegrationAuthenticationId],  
+                [RevProduct].[id] AS [RevProductId],  
+                [RevPackage].[Id] AS [RevPackageId],  
+                ROW_NUMBER() OVER(PARTITION BY [RevPackageProductStaging].[IntegrationAuthenticationId], [RevPackageProductStaging].[PackageProductId] ORDER BY [RevPackageProductStaging].[PackageProductId] DESC) AS [RecordNumber]  
+   FROM [RevPackageProductStaging]  
+   INNER JOIN [dbo].[RevPackage] ON [RevPackageProductStaging].[PackageId] = [RevPackage].[PackageId] AND [RevPackageProductStaging].[IntegrationAuthenticationId] = [RevPackage].[IntegrationAuthenticationId]  
+   LEFT JOIN [dbo].[RevProduct] ON [RevPackageProductStaging].[ProductId] = [RevProduct].[ProductId] AND [RevPackageProductStaging].[IntegrationAuthenticationId] = [RevProduct].[IntegrationAuthenticationId]  
+  ) [RevPackageProductStg]  
+  WHERE [RecordNumber] = 1  
+    ) AS [SOURCE]  
+    ON [TARGET].[PackageProductId] = [SOURCE].[PackageProductId] AND [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId]  
+    WHEN NOT MATCHED BY TARGET THEN  
+        INSERT (  
+            [PackageProductId],  
+            [ProductId],  
+            [PackageId],  
+            [Description],  
+            [Code1],  
+            [Code2],  
+            [Rate],  
+            [Cost],  
+            [BuyRate],  
+            [Quantity],  
+            [TaxIncluded],  
+            [GroupOnBill],  
+            [Itemized],  
+            [Credit],  
+            [CreatedBy],  
+            [CreatedDate],  
+            [ModifiedBy],  
+            [ModifiedDate],  
+            [DeletedBy],  
+            [DeletedDate],  
+            [IsDeleted],  
+            [IsActive],  
+            [IntegrationAuthenticationId],  
+            [RevProductId],  
+            [RevPackageId]  
+        )  
+        VALUES(  
+            [SOURCE].[PackageProductId]  
+            ,[SOURCE].[ProductId]  
+            ,[SOURCE].[PackageId]  
+            ,[SOURCE].[Description]  
+            ,[SOURCE].[Code1]  
+            ,[SOURCE].[Code2]  
+            ,[SOURCE].[Rate]  
+           ,[SOURCE].[Cost]  
+            ,[SOURCE].[BuyRate]  
+            ,[SOURCE].[Quantity]  
+            ,[SOURCE].[TaxIncluded]  
+            ,[SOURCE].[GroupOnBill]  
+            ,[SOURCE].[Itemized]  
+            ,[SOURCE].[Credit]  
+            ,@processedBy  
+            ,GETUTCDATE()  
+            ,NULL  
+            ,NULL  
+            ,NULL  
+            ,NULL  
+            ,0  
+            ,1  
+            ,[SOURCE].[IntegrationAuthenticationId]  
+            ,[SOURCE].[RevProductId]  
+            ,[SOURCE].[RevPackageId]  
+        )  
+    WHEN NOT MATCHED BY SOURCE AND [TARGET].[IntegrationAuthenticationId] = @IntegrationAuthenticationId THEN  
+        UPDATE  
+     SET  
+         [TARGET].[IsDeleted] = 1,  
+         [TARGET].[IsActive] = 0,  
+         [TARGET].[ModifiedBy] = @processedBy,  
+         [TARGET].[ModifiedDate] = GETUTCDATE()  
+    WHEN MATCHED THEN  
+        UPDATE  
+        SET [TARGET].[ProductId] = [SOURCE].[ProductId],  
+            [TARGET].[PackageId] = [SOURCE].[PackageId],  
+            [TARGET].[Description] = [SOURCE].[Description],  
+            [TARGET].[Code1] = [SOURCE].[Code1],  
+            [TARGET].[Code2] = [SOURCE].[Code2],  
+            [TARGET].[Rate] = [SOURCE].[Rate],  
+            [TARGET].[Cost] = [SOURCE].[Cost],  
+            [TARGET].[BuyRate] = [SOURCE].[BuyRate],  
+            [TARGET].[Quantity] = [SOURCE].[Quantity],  
+            [TARGET].[TaxIncluded] = [SOURCE].[TaxIncluded],  
+            [TARGET].[GroupOnBill] = [SOURCE].[GroupOnBill],  
+            [TARGET].[Itemized] = [SOURCE].[Itemized],  
+            [TARGET].[Credit] = [SOURCE].[Credit],  
+            [TARGET].[ModifiedBy] = @processedBy,  
+            [TARGET].[ModifiedDate] = GETUTCDATE(),  
+            [TARGET].[IsDeleted] = 0,  
+         [TARGET].[IsActive] = 1,  
+            [TARGET].[IntegrationAuthenticationId] = [SOURCE].[IntegrationAuthenticationId],  
+            [TARGET].[RevProductId] = [SOURCE].[RevProductId],  
+            [TARGET].[RevPackageId] = [SOURCE].[RevPackageId];  
+    END;
+
+
+usp_Rev_Get_Next_Authentication
+
+CREATE PROCEDURE [dbo].[usp_Rev_Get_Next_Authentication]  
+ @integrationAuthenticationId INT  
+AS  
+BEGIN  
+ SET NOCOUNT ON;  
+   
+ SELECT  
+  ISNULL([NextIntegrationAuthenticationId], -1) AS [NextIntegrationAuthenticationId]  
+ FROM  
+ (   
+  SELECT  
+   TOP (1)   
+   [IntegrationAuthentication].[id] AS [NextIntegrationAuthenticationId]  
+  FROM  
+   [dbo].[Integration_Authentication] [IntegrationAuthentication]  
+  WHERE  
+   [IntegrationAuthentication].[IntegrationId] = 3  
+   AND  
+   [TokenValue] IS NOT NULL  
+   AND  
+   [IntegrationAuthentication].[IsActive] = 1  
+   AND  
+   [IntegrationAuthentication].[IsDeleted] = 0  
+   AND  
+   [IntegrationAuthentication].[id] > @integrationAuthenticationId  
+  ORDER BY   
+   [IntegrationAuthentication].[id]  
+ ) [NextIntegrationAuthentication];  
+END
+
